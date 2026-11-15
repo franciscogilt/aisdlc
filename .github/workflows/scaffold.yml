@@ -44,13 +44,13 @@ jobs:
           ./mvnw -B -q test
           find . -type f -not -path './target/*' | sort
           cat pom.xml
-      - name: Publicar resultado en rama scaffold-out
+      - name: Detalles
         run: |
-          rm -rf out/spring.zip out/spring/target out/dotnet/*/bin out/dotnet/*/obj
-          git config user.name "scaffold"
-          git config user.email "scaffold@users.noreply.github.com"
-          git checkout --orphan scaffold-out
-          git rm -rf -q --cached . || true
-          git add -f out
-          git commit -qm "scaffold output"
-          git push -f origin scaffold-out
+          echo "=====PROPS"; cat out/spring/.mvn/wrapper/maven-wrapper.properties
+          echo "=====MVNW"; cat out/spring/mvnw
+          echo "=====MODE"; stat -c '%a' out/spring/mvnw
+          echo "=====SLNX"; cd out/dotnet && dotnet new sln -n App --no-restore && ls && cat App.slnx
+          echo "=====PLUGINS"
+          for a in org/apache/maven/plugins/maven-checkstyle-plugin com/puppycrawl/tools/checkstyle; do
+            echo "$a: $(curl -fsS https://repo.maven.apache.org/maven2/$a/maven-metadata.xml | grep -E '<release>|<latest>' | tr -d ' ')"
+          done
