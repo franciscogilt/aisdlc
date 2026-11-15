@@ -250,9 +250,32 @@ class StarterAppTests(unittest.TestCase):
                 self.assertIn("/health", (p / "nginx.conf").read_text())
                 self.assertTrue((p / "package-lock.json").exists())
 
+    def test_remaining_apps(self):
+        cases = {
+            "laravel": ("composer.lock", "artisan", "routes/api.php"),
+            "rails": ("Gemfile.lock", "bin/rails", "app/controllers/items_controller.rb"),
+            "quarkus": ("pom.xml", "mvnw", "src/main/java/com/example/app/ItemResource.java"),
+        }
+        for stack, files in cases.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(sk.main(["--stack", stack, "--db", "postgres", "--with-app", "--out", tmp]), 0)
+                p = pathlib.Path(tmp)
+                for rel in files:
+                    self.assertTrue((p / rel).exists(), f"{stack}: {rel}")
+                for rel in files[1:2]:  # los scripts se ejecutan: necesitan permiso de ejecucion
+                    self.assertTrue(os.access(p / rel, os.X_OK), f"{stack}: {rel}")
+                self.assertTrue((p / "Dockerfile").exists(), stack)  # Rails sin app no tiene; con app si
+                self.assertFalse((p / ".env").exists(), stack)  # nunca se incluyen secretos reales
+                self.assertFalse((p / "config/master.key").exists(), stack)
+
     def test_with_app_unsupported_stack(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(sk.main(["--stack", "rails", "--with-app", "--out", tmp]), 2)
+        original = sk.STARTER_APPS
+        sk.STARTER_APPS = ("fastapi",)  # los 12 stacks ya tienen app: simula uno sin ella
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(sk.main(["--stack", "rails", "--with-app", "--out", tmp]), 2)
+        finally:
+            sk.STARTER_APPS = original
 
     def test_generated_python_tooling_is_lint_exempt(self):
         for rel, content, _m, _e in sk.build_files("d", "fastapi", "none", "none", "none", "@o/t"):
