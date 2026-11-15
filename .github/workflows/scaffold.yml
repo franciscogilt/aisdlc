@@ -1,0 +1,51 @@
+name: scaffold
+on:
+  push:
+    branches: [scaffold-tmp]
+permissions:
+  contents: read
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Versiones
+        run: |
+          mkdir -p out
+          {
+            dotnet --version
+            for p in microsoft.aspnetcore.mvc.testing microsoft.net.test.sdk xunit xunit.runner.visualstudio xunit.v3; do
+              echo "$p: $(curl -fsS https://api.nuget.org/v3-flatcontainer/$p/index.json | python3 -c 'import json,sys; v=[x for x in json.load(sys.stdin)["versions"] if "-" not in x]; print(v[-3:])')"
+            done
+            curl -fsS https://start.spring.io/metadata/client -H 'Accept: application/json' | python3 -c 'import json,sys; d=json.load(sys.stdin); print("boot default:", d["bootVersion"]["default"]); print("boot values:", [v["id"] for v in d["bootVersion"]["values"]]); print("java:", [v["id"] for v in d["javaVersion"]["values"]])'
+          } | tee out/versions.txt
+      - name: Spring Initializr
+        run: |
+          curl -fsS https://start.spring.io/starter.zip -d type=maven-project -d language=java -d javaVersion=25 \
+            -d groupId=com.example -d artifactId=app -d name=app -d packageName=com.example.app \
+            -d dependencies=web -o out/spring.zip
+          mkdir out/spring && unzip -q out/spring.zip -d out/spring
+      - name: dotnet
+        run: |
+          mkdir -p out/dotnet && cd out/dotnet
+          dotnet new web -o App --no-restore
+          dotnet new xunit -o App.Tests --no-restore
+          find . -type f | sort
+          cat App/App.csproj App.Tests/App.Tests.csproj App/Program.cs
+      - name: Spring compila y prueba
+        working-directory: out/spring
+        run: |
+          ./mvnw -B -q test
+          find . -type f -not -path './target/*' | sort
+          cat pom.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scaffold
+          path: out
+          retention-days: 3
