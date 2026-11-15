@@ -1777,6 +1777,103 @@ def ask_choice(title, options, default):
         print("  Opcion no valida.")
 
 
+def adapt_runtime(files, out, stack):
+    """Proyecto existente: respeta la version de runtime que declara (runtime.txt, .python-version, .nvmrc,
+    .ruby-version) en el CI y el Dockerfile, en vez de imponer la de la fabrica."""
+    import re as _re
+    spec = {  # (archivos donde se declara, clave en RT, plantillas a reemplazar)
+        "python": (("runtime.txt", ".python-version"), r"(\d+\.\d+)", ('python-version: "{v}"', "python:{v}")),
+        "node": ((".nvmrc", ".node-version"), r"v?(\d+)", ('node-version: "{v}"', "node:{v}")),
+        "ruby": ((".ruby-version",), r"(\d+\.\d+)", ('ruby-version: "{v}"', "ruby:{v}")),
+    }
+    key = {"fastapi": "python", "django": "python", "express": "node", "nextjs": "node", "react": "node",
+           "angular": "node", "rails": "ruby"}.get(stack)
+    if not key:
+        return files, []
+    names, pat, tpls = spec[key]
+    for n in names:
+        f = out / n
+        if not f.exists():
+            continue
+        txt = f.read_text().strip().replace("python-", "")
+        m = _re.match(pat, txt)
+        if not m:
+            continue
+        old, new = RT[key], m.group(1)
+        if old == new:
+            return files, []
+        files = [(path, content.replace(tpls[0].format(v=old), tpls[0].format(v=new))
+                  .replace(tpls[1].format(v=old), tpls[1].format(v=new)) if path in
+                  (".github/workflows/ci.yml", "Dockerfile") else content, mode, exe)
+                 for path, content, mode, exe in files]
+        return files, [f"Tu proyecto declara {key} {new} en {n}: el CI y el Dockerfile usan {new} (la fabrica usa {old}). "
+                       f"Si {new} ya no tiene soporte, actualizarlo es parte de tu primera tarea."]
+    return files, []
+
+
+NODE_STACKS = ("express", "nextjs", "react", "angular")
+
+
+def adapt_node_project(files, out, stack):
+    """Proyecto Node existente: usa su gestor de paquetes (pnpm/yarn) y no exige scripts que no tiene.
+    Devuelve los avisos para mostrar al usuario."""
+    pj = out / "package.json"
+    if stack not in NODE_STACKS or not pj.exists():
+        return files, []
+    try:
+        scripts = json.loads(pj.read_text()).get("scripts", {})
+    except ValueError:
+        return files, [f"package.json no es JSON valido: no se adapto el CI."]
+    notes = []
+    if (out / "pnpm-lock.yaml").exists():
+        pm = "pnpm"
+    elif (out / "yarn.lock").exists():
+        pm = "yarn-berry" if (out / ".yarnrc.yml").exists() else "yarn"
+    elif (out / "bun.lock").exists() or (out / "bun.lockb").exists():
+        return files, ["Proyecto con bun: el CI generado usa npm; ajusta install/test/build a mano."]
+    else:
+        pm = "npm"
+    missing = [x for x in ("lint", "test", "build") if x not in scripts]
+    if missing:
+        notes.append("Tu package.json no define los scripts: " + ", ".join(missing)
+                     + ". El CI los omite (--if-present) hasta que los agregues; sin lint ni tests el CI controla poco.")
+    run = {"npm": "npm run", "pnpm": "pnpm run", "yarn": "yarn run", "yarn-berry": "yarn run"}[pm]
+    install = {"npm": "npm ci", "pnpm": "pnpm install --frozen-lockfile", "yarn": "yarn install --frozen-lockfile",
+               "yarn-berry": "yarn install --immutable"}[pm]
+    audit = {"npm": "npm audit --audit-level=high", "pnpm": "pnpm audit --audit-level=high",
+             "yarn": "yarn audit --level high", "yarn-berry": "yarn npm audit --severity high"}[pm]
+    cache = {"npm": "npm", "pnpm": "pnpm", "yarn": "yarn", "yarn-berry": "yarn"}[pm]
+    lock = {"npm": "package*.json", "pnpm": "package.json pnpm-lock.yaml", "yarn": "package.json yarn.lock",
+            "yarn-berry": "package.json yarn.lock"}[pm]
+
+    def fix(path, text):
+        if path == ".github/workflows/ci.yml":
+            for sc in ("lint", "build"):
+                text = text.replace(f"npm run {sc}\n", f"{run} {sc}{'' if sc in scripts else ' --if-present'}\n")
+            text = text.replace("          npm test\n", f"          {'npm test' if pm == 'npm' else run + ' test'}"
+                                f"{'' if 'test' in scripts else ' --if-present'}\n")
+            text = text.replace("npm ci", install).replace("npm audit --audit-level=high", audit)
+            if pm != "npm":
+                text = text.replace('"cache": "npm"', f'"cache": "{cache}"').replace("cache: npm", f"cache: {cache}")
+                text = text.replace("      - uses: actions/setup-node@v4",
+                                    "      - name: Activar corepack\n        run: corepack enable\n"
+                                    "      - uses: actions/setup-node@v4", 1)
+        elif path == "Dockerfile" and pm != "npm":
+            text = text.replace("COPY package*.json ./", f"COPY {lock} ./")
+            text = text.replace("RUN npm ci --omit=dev", f"RUN corepack enable && {install} --prod")
+            text = text.replace("RUN npm ci", f"RUN corepack enable && {install}")
+            text = text.replace("RUN npm run build", f"RUN {run} build")
+        return text
+
+    files = [(path, fix(path, content), mode, exe) for path, content, mode, exe in files]
+    if pm != "npm":
+        notes.append(f"Detectado {pm.split('-')[0]}: el CI y el Dockerfile lo usan (corepack).")
+    cfg = [x for x in ("next.config.mjs", "next.config.js", "next.config.ts") if (out / x).exists()]
+    if stack == "nextjs" and cfg and "standalone" not in (out / cfg[0]).read_text():
+        notes.append(f'Dockerfile: agrega output: "standalone" a {cfg[0]} (lo requiere la imagen).')
+    return files, notes
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Fabrica de software: generador de starter kit AI-native SDLC")
     ap.add_argument("--stack", choices=STACKS)
@@ -1804,6 +1901,7 @@ def main(argv=None):
         return 0
 
     out = Path(a.out).resolve()
+    notes = []
     if a.update:
         meta_path = out / ".claude" / "factory.json"
         if not meta_path.exists():
@@ -1826,6 +1924,11 @@ def main(argv=None):
             return 2
         files = build_files(a.name or out.name or "mi-proyecto", stack, db, cloud, deploy, a.owner,
                             not a.no_workflow, a.with_app, a.plugin, a.plugin_repo)
+        notes = []
+        if not a.with_app:
+            files, notes = adapt_node_project(files, out, stack)
+            files, more = adapt_runtime(files, out, stack)
+            notes += more
         rep = write_files(out, files, force=a.force)
         print(f"\nStarter kit para {STACKS[stack]['label']} en {out}:")
     for k, v in rep.items():
@@ -1836,6 +1939,8 @@ def main(argv=None):
         print("\nFusiona a mano los archivos *.starter.* con los tuyos.")
     if rep["omitido"]:
         print("\nLos omitidos ya existian; usa --force para sobrescribirlos.")
+    for n in notes:
+        print(f"\nAVISO: {n}")
     print("\nSiguiente paso: abre SDLC-README.md (seccion 'Configuracion unica').")
     return 0
 

@@ -283,5 +283,41 @@ class StarterAppTests(unittest.TestCase):
                 self.assertIn("# ruff: noqa", content, rel)
 
 
+
+
+class ExistingProjectTests(unittest.TestCase):
+    """Adopcion en un proyecto que ya existe: el kit respeta su gestor de paquetes y su runtime."""
+
+    def gen(self, stack, files):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = pathlib.Path(tmp)
+            for name, content in files.items():
+                (p / name).write_text(content)
+            self.assertEqual(sk.main(["--stack", stack, "--db", "postgres", "--out", tmp]), 0)
+            return {f: (p / f).read_text() for f in (".github/workflows/ci.yml", "Dockerfile")}
+
+    def test_pnpm_project(self):
+        out = self.gen("nextjs", {"package.json": '{"scripts": {"build": "next build"}}', "pnpm-lock.yaml": "x"})
+        ci = out[".github/workflows/ci.yml"]
+        self.assertIn("pnpm install --frozen-lockfile", ci)
+        self.assertIn("corepack enable", ci)
+        self.assertIn("pnpm run lint --if-present", ci)  # no tiene lint: no debe romper el CI
+        self.assertNotIn("npm ci", ci)
+        self.assertIn("COPY package.json pnpm-lock.yaml ./", out["Dockerfile"])
+
+    def test_npm_project_with_scripts_is_unchanged(self):
+        out = self.gen("nextjs", {"package.json": '{"scripts": {"lint": "x", "test": "x", "build": "x"}}'})
+        self.assertIn("npm ci", out[".github/workflows/ci.yml"])
+        self.assertNotIn("--if-present", out[".github/workflows/ci.yml"])
+
+    def test_declared_python_runtime_is_respected(self):
+        out = self.gen("django", {"runtime.txt": "python-3.10.8\n"})
+        self.assertIn('python-version: "3.10"', out[".github/workflows/ci.yml"])
+        self.assertIn("FROM python:3.10", out["Dockerfile"])
+
+    def test_malformed_package_json_does_not_crash(self):
+        self.gen("express", {"package.json": "{no es json"})
+
+
 if __name__ == "__main__":
     unittest.main()
