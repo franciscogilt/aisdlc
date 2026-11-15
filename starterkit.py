@@ -338,7 +338,7 @@ OWNER_DEFAULT = "@TU-ORG/plataforma"
 PLUGIN_NAME = "aisdlc"
 PLUGIN_AUTHOR = "franciscogilt"
 PLUGIN_REPO_DEFAULT = "franciscogilt/aisdlc"
-STARTER_APPS = ("fastapi", "django", "express")
+STARTER_APPS = ("fastapi", "django", "express", "dotnet", "springboot")
 MANAGED, OWNED = "managed", "owned"
 
 
@@ -627,7 +627,7 @@ vendor
 """
 
 
-def dockerfile_for(stack):
+def dockerfile_for(stack, with_app=False):
     if stack == "rails":
         return None  # Rails 8 ya genera su propio Dockerfile: usa el nativo.
     key = {"fastapi": "python", "django": "python", "express": "node",
@@ -638,7 +638,11 @@ def dockerfile_for(stack):
     if stack == "django":
         cmd = '["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]'
         note = "modulo wsgi; agrega gunicorn a requirements, es necesario en produccion"
-    return render(_DOCKERFILES[key], cmd=cmd, cmdnote=note, **RT)
+    df = render(_DOCKERFILES[key], cmd=cmd, cmdnote=note, **RT)
+    if stack == "dotnet" and with_app:  # la app de arranque tiene su proyecto en src/App
+        df = df.replace("dotnet publish -c Release", "dotnet publish src/App/App.csproj -c Release")
+        df = df.replace("# TODO: reemplaza App.dll por el ensamblado principal de tu proyecto\n", "")
+    return df
 
 
 def compose_for(stack, db):
@@ -1619,7 +1623,7 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
     add(".github/CODEOWNERS", codeowners(stack, owner), OWNED)
     add(".github/pull_request_template.md", PR_TEMPLATE, OWNED)
 
-    df = dockerfile_for(stack)
+    df = dockerfile_for(stack, with_app)
     if df:
         add("Dockerfile", df, OWNED)
     if stack in FRONTEND:
@@ -1636,7 +1640,7 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
     add("scripts/protect-main.sh", PROTECT_SH, MANAGED, True)
     if with_app:
         for rel, content in starter_app_files(stack).items():
-            add(rel, content, OWNED)
+            add(rel, content, OWNED, exe=(rel == "mvnw"))
     add("SDLC-README.md", render(SDLC_README, stack_label=s["label"], version=VERSION, p=px), MANAGED)
     return F
 
