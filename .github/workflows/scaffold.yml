@@ -23,10 +23,11 @@ jobs:
       - name: Generar andamios
         run: |
           mkdir -p /tmp/out && cd /tmp/out
-          composer create-project laravel/laravel laravel --prefer-dist --no-interaction
+          [ -d laravel ] || composer create-project laravel/laravel laravel --prefer-dist --no-interaction
           gem install rails --no-document
           rails -v
-          rails new rails --minimal --skip-git --skip-bundle --skip-kamal --skip-solid --skip-docker=false --database=sqlite3 || rails new rails --minimal --skip-git --skip-bundle
+          rails new railsapp --minimal --skip-git --skip-bundle --skip-kamal --skip-solid --database=sqlite3
+          mv railsapp rails_out
           curl -fsS "https://code.quarkus.io/d?g=com.example&a=app&e=rest&j=25&b=MAVEN&nc=true" -o q.zip
           unzip -q q.zip -d quarkus_tmp && mv quarkus_tmp/* quarkus
           php -v | head -1; ruby -v; cat laravel/composer.json | head -40
@@ -34,8 +35,8 @@ jobs:
         run: |
           mkdir -p /tmp/pub
           cd /tmp/out
-          rm -rf laravel/vendor laravel/node_modules laravel/.git rails/.git quarkus/target
-          cp -r laravel rails quarkus /tmp/pub/
+          rm -rf laravel/vendor laravel/node_modules laravel/.git rails_out/.git quarkus/target
+          cp -r laravel quarkus /tmp/pub/ && cp -r rails_out /tmp/pub/rails
           cd "$GITHUB_WORKSPACE"
           git config user.name scaffold
           git config user.email scaffold@users.noreply.github.com
