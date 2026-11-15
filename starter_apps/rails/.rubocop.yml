@@ -1,0 +1,2 @@
+# Estilo oficial de Rails (omakase).
+inherit_gem: { rubocop-rails-omakase: rubocop.yml }
