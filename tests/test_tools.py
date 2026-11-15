@@ -51,8 +51,24 @@ class PickCycleTests(unittest.TestCase):
 
     def test_major_of(self):
         self.assertEqual(uv.major_of("v5.0.1"), "v5")
+        self.assertEqual(uv.major_of("2.36.0"), "v2")      # setup-php publica tags sin 'v'
         self.assertIsNone(uv.major_of("codeql-bundle-v2.1"))
         self.assertIsNone(uv.major_of(None))
+
+    def test_latest_major_skips_bundles_and_prereleases(self):
+        releases = [{"tag_name": "codeql-bundle-v2.9.0"}, {"tag_name": "v4.0.0-rc1", "prerelease": True},
+                    {"tag_name": "v3.30.1"}, {"tag_name": "v3.30.0"}]
+        original = uv.fetch_json
+        uv.fetch_json = lambda url: releases
+        try:
+            self.assertEqual(uv.latest_major("github/codeql-action"), "v3")
+        finally:
+            uv.fetch_json = original
+
+    def test_dotnet_is_normalized(self):
+        self.assertEqual(uv.normalize("dotnet", "10"), "10.0")
+        self.assertEqual(uv.normalize("dotnet", "10.0"), "10.0")
+        self.assertEqual(uv.normalize("node", "24"), "24")
 
 
 class PlanTests(unittest.TestCase):

@@ -78,8 +78,14 @@ def pick_cycle(cycles, only_lts, today):
 
 
 def major_of(tag):
-    m = re.match(r"v?(\d+)", tag or "")
-    return f"v{m.group(1)}" if m and tag.startswith("v") else None
+    """'v5.0.1' o '2.36.0' -> 'v5' / 'v2'. Ignora tags que no son una version (p. ej. 'codeql-bundle-v2.1')."""
+    m = re.match(r"^v?(\d+)(?:\.\d+)*$", tag or "")
+    return f"v{m.group(1)}" if m else None
+
+
+def normalize(key, cycle):
+    """endoflife.date a veces da .NET como '10'; las imagenes y setup-dotnet usan '10.0'."""
+    return f"{cycle}.0" if key == "dotnet" and "." not in cycle else cycle
 
 
 def latest_runtimes(today, errors):
@@ -88,7 +94,7 @@ def latest_runtimes(today, errors):
         try:
             cycle = pick_cycle(fetch_json(f"https://endoflife.date/api/{product}.json"), only_lts, today)
             if cycle:
-                out[key] = cycle
+                out[key] = normalize(key, cycle)
             else:
                 errors.append(f"{product}: ningun ciclo cumple los criterios")
         except Exception as exc:
@@ -96,15 +102,26 @@ def latest_runtimes(today, errors):
     return out
 
 
+def latest_major(repo):
+    """Version mayor del release estable mas reciente (la API de 'latest' puede devolver bundles u otros tags)."""
+    for rel in fetch_json(f"https://api.github.com/repos/{repo}/releases?per_page=30"):
+        if rel.get("draft") or rel.get("prerelease"):
+            continue
+        major = major_of(rel.get("tag_name"))
+        if major:
+            return major
+    return None
+
+
 def latest_actions(errors):
     out = {}
     for repo in ACTIONS:
         try:
-            major = major_of(fetch_json(f"https://api.github.com/repos/{repo}/releases/latest").get("tag_name"))
+            major = latest_major(repo)
             if major:
                 out[repo] = major
             else:
-                errors.append(f"{repo}: el ultimo release no tiene formato vN")
+                errors.append(f"{repo}: ningun release estable con formato de version")
         except Exception as exc:
             errors.append(f"{repo}: {exc}")
     return out
