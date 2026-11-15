@@ -653,6 +653,8 @@ def compose_for(stack, db):
     if has_db and db == "dynamodb":
         out += "    environment:\n      DYNAMODB_ENDPOINT: http://dynamodb:8000\n"
         out += "    depends_on:\n      - dynamodb\n"
+    # Desde PostgreSQL 18 la imagen espera el volumen en /var/lib/postgresql (no en .../data).
+    pgpath = "/var/lib/postgresql" if int(RT["postgres"]) >= 18 else "/var/lib/postgresql/data"
     if has_db and db == "postgres":
         out += f"""  db:
     image: postgres:{RT["postgres"]}
@@ -663,7 +665,7 @@ def compose_for(stack, db):
     ports:
       - "5432:5432"
     volumes:
-      - dbdata:/var/lib/postgresql/data
+      - dbdata:{pgpath}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app"]
       interval: 5s

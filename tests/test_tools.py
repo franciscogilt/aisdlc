@@ -146,6 +146,20 @@ class PluginTests(unittest.TestCase):
             self.assertNotIn("enabledPlugins", (p / ".claude/settings.json").read_text())
 
 
+class ComposeTests(unittest.TestCase):
+    def test_postgres_volume_path_follows_version(self):
+        original = sk.RT["postgres"]
+        try:
+            sk.RT["postgres"] = "17"
+            self.assertIn("dbdata:/var/lib/postgresql/data", sk.compose_for("fastapi", "postgres"))
+            sk.RT["postgres"] = "18"
+            c = sk.compose_for("fastapi", "postgres")
+            self.assertIn("dbdata:/var/lib/postgresql\n", c)
+            self.assertNotIn("/var/lib/postgresql/data", c)
+        finally:
+            sk.RT["postgres"] = original
+
+
 class StarterAppTests(unittest.TestCase):
     def test_with_app_generates_runnable_project_files(self):
         with tempfile.TemporaryDirectory() as tmp:
