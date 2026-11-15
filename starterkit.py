@@ -536,6 +536,8 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 FROM eclipse-temurin:@@java@@-jdk AS build
 WORKDIR /src
 COPY .mvn .mvn
+# unzip: sin el, mvnw baja el tar.gz y falla la verificacion SHA-256 del wrapper (que es del zip)
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 COPY mvnw pom.xml ./
 COPY src src
 # (sin dependency:go-offline: no resuelve bien los plugins de Quarkus)
@@ -722,7 +724,7 @@ def env_example(stack, db):
     if stack in FRONTEND:
         return out
     if stack == "laravel":
-        out += "APP_KEY=\n"  # `php artisan key:generate` lo rellena
+        out += "APP_KEY=\nLOG_CHANNEL=stderr\n"  # key:generate rellena APP_KEY; stderr => los errores salen en `docker compose logs`
     if stack == "rails":
         out += "SECRET_KEY_BASE=solo-desarrollo-genera-uno-real-con-bin-rails-secret\n"
     if db == "postgres":
