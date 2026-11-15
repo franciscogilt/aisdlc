@@ -34,7 +34,7 @@ Después abre `SDLC-README.md` en el proyecto generado y sigue su sección *Conf
 | Revisión | `claude-review.yml` (modo observación), `claude.yml` (`@claude`), `CODEOWNERS`, plantilla de PR, `scripts/protect-main.sh` |
 | Runtime | `Dockerfile`, `docker-compose.yml`, `.env.example`, `.dockerignore` |
 | Evals y métricas | `evals/run_hook_evals.py` (determinista, corre en CI), `evals/run_behavior_evals.py` (experimental), `scripts/metrics.py` |
-| App de arranque (`--with-app`) | app mínima con tests y dependencias fijadas (hoy: **fastapi**) en `starter_apps/` |
+| App de arranque (`--with-app`) | app mínima con tests y dependencias fijadas (hoy: **fastapi, django, express**) en `starter_apps/` |
 
 ## Plugin compartido
 
@@ -70,12 +70,12 @@ funciona aunque el plugin no esté instalado y se puede probar en el CI del proy
 ## Qué está verificado y qué no
 
 **Verificado en este entorno:**
-- 25 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
+- 31 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
   `--update`, `--with-app`, `--plugin`, métricas y la lógica de actualización de versiones (con datos de prueba).
 - Hook probado en **sesiones reales de Claude Code 2.1.325**: bloquea migraciones sin ticket, bloquea el bypass por Bash y pide aprobación para instalar paquetes.
 - Los workflows de los 12 stacks pasan `actionlint`; los 12 `docker-compose.yml` pasan `docker compose config`.
-- **FastAPI de punta a punta (sin Docker):** el kit con `--with-app` pasa todos los pasos de su `ci.yml` (instalar, lint, tests, build, `pip-audit`).
-  Esa prueba detectó y corrigió un fallo real: el lint del proyecto marcaba como errores los scripts generados.
+- **FastAPI, Django y Express de punta a punta (sin Docker):** el kit con `--with-app` pasa todos los pasos de su `ci.yml` (instalar, lint, tests, build, auditoría de dependencias); Django y Express además se arrancaron como lo hará el contenedor (gunicorn / `node src/index.js`) y respondieron en `/health`.
+  Estas pruebas detectaron y corrigieron fallos reales: el lint marcaba como errores los scripts generados, y el CI de Django necesitaba `APP_ENV` para el `manage.py check`.
 - Plugin: `claude plugin validate` pasa; se instaló desde un marketplace local y Claude Code listó 9 skills/comandos y 1 agente.
 - Las versiones de la app de arranque se fijaron consultando PyPI en vivo.
 
@@ -84,7 +84,7 @@ funciona aunque el plugin no esté instalado y se puede probar en el CI del proy
 - La consulta a endoflife.date y a los releases de Actions (`update-versions.yml`): desde mi entorno esas dos fuentes no eran accesibles.
 
 **No verificado (hazlo en tu primer proyecto):**
-- Los Dockerfiles de los otros 11 stacks y sus CI no se han ejecutado (solo FastAPI tiene app de arranque).
+- Los Dockerfiles y el CI de los otros 9 stacks no se han ejecutado (solo FastAPI, Django y Express tienen app de arranque).
 - `--plugin` en un proyecto real: las claves `extraKnownMarketplaces` y `enabledPlugins` siguen el formato documentado, pero no probé una sesión con un marketplace de GitHub privado.
 - `claude-code-action` y `scripts/protect-main.sh` requieren tu secreto y permisos de admin.
 - Los comandos de test/lint/build de los demás stacks son los típicos; confirma que coinciden con tu proyecto.

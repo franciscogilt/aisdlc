@@ -173,9 +173,38 @@ class StarterAppTests(unittest.TestCase):
             meta = json.loads((p / ".claude/factory.json").read_text())
             self.assertTrue(meta["with_app"])
 
+    def test_every_starter_app_is_registered_and_in_e2e(self):
+        import yaml
+        e2e = yaml.safe_load((ROOT / ".github/workflows/e2e.yml").read_text())
+        matrix = {m["stack"] for m in e2e["jobs"]["project"]["strategy"]["matrix"]["include"]}
+        dirs = {p.name for p in (ROOT / "starter_apps").iterdir() if p.is_dir()}
+        self.assertEqual(set(sk.STARTER_APPS), dirs)
+        self.assertEqual(set(sk.STARTER_APPS), matrix)
+
+    def test_django_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "django", "--db", "postgres", "--with-app", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            for rel in ("manage.py", "config/settings.py", "core/views.py", "core/tests.py", "requirements.txt"):
+                self.assertTrue((p / rel).exists(), rel)
+            self.assertIn("APP_ENV: development", (p / ".github/workflows/ci.yml").read_text())
+            self.assertIn("config.wsgi", (p / "Dockerfile").read_text())  # el Dockerfile apunta al modulo real
+            self.assertIn("gunicorn", (p / "requirements.txt").read_text())
+
+    def test_express_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "express", "--db", "postgres", "--with-app", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            pkg = json.loads((p / "package.json").read_text())
+            for script in ("test", "lint"):
+                self.assertIn(script, pkg["scripts"])
+            self.assertTrue((p / "package-lock.json").exists())  # `npm ci` lo exige
+            self.assertNotIn("node_modules", [c.name for c in p.iterdir()])
+            self.assertIn("src/index.js", (p / "Dockerfile").read_text())
+
     def test_with_app_unsupported_stack(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(sk.main(["--stack", "go", "--with-app", "--out", tmp]), 2)
+            self.assertEqual(sk.main(["--stack", "rails", "--with-app", "--out", tmp]), 2)
 
     def test_generated_python_tooling_is_lint_exempt(self):
         for rel, content, _m, _e in sk.build_files("d", "fastapi", "none", "none", "none", "@o/t"):
