@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "p_auctions-django",
+  "stack": "django",
+  "db": "postgres",
+  "cloud": "none",
+  "deploy": "none",
+  "owner": "@franciscogilt",
+  "workflow": true,
+  "with_app": false,
+  "plugin": false,
+  "plugin_repo": "franciscogilt/aisdlc"
+}
