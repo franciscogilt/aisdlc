@@ -1,0 +1,14 @@
+.git
+.github
+.claude
+intent
+evals
+node_modules
+**/__pycache__
+.venv
+target
+vendor
+.env
+.env.*
+!.env.example
+*.log

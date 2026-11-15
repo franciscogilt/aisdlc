@@ -1,0 +1,22 @@
+{
+  "protected": [
+    ".github/workflows/",
+    "/migrations/",
+    "Dockerfile",
+    "docker-compose",
+    "infra/",
+    "prisma/migrations/",
+    "terraform/"
+  ],
+  "secrets": [
+    ".env"
+  ],
+  "dependencies": [
+    "package.json"
+  ],
+  "install_patterns": [
+    "\\b(npm|pnpm)\\s+(i|install|add)\\s+\\S",
+    "\\byarn\\s+add\\b",
+    "\\bbun\\s+add\\b"
+  ]
+}

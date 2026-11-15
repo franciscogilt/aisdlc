@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "p_nextjs-dashboard",
+  "stack": "nextjs",
+  "db": "postgres",
+  "cloud": "none",
+  "deploy": "vercel",
+  "owner": "@franciscogilt",
+  "workflow": true,
+  "with_app": false,
+  "plugin": false,
+  "plugin_repo": "franciscogilt/aisdlc"
+}
