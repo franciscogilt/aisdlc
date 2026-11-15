@@ -10,8 +10,9 @@ Requiere Python 3.9+ (sin dependencias).
 
 ```bash
 python3 starterkit.py                                  # interactivo
-python3 starterkit.py --stack go --db postgres --cloud aws --deploy none \
-    --owner @mi-org/plataforma --out ./mi-api
+python3 starterkit.py --stack fastapi --db postgres --cloud aws --with-app \
+    --owner @mi-org/plataforma --out ./mi-api          # con app de arranque y tests
+python3 starterkit.py --stack go --plugin --out ./mi-go   # skills/comandos desde el plugin compartido
 python3 starterkit.py --update --out ./mi-api          # actualiza archivos gestionados
 python3 starterkit.py --list
 ```
@@ -33,6 +34,30 @@ Después abre `SDLC-README.md` en el proyecto generado y sigue su sección *Conf
 | Revisión | `claude-review.yml` (modo observación), `claude.yml` (`@claude`), `CODEOWNERS`, plantilla de PR, `scripts/protect-main.sh` |
 | Runtime | `Dockerfile`, `docker-compose.yml`, `.env.example`, `.dockerignore` |
 | Evals y métricas | `evals/run_hook_evals.py` (determinista, corre en CI), `evals/run_behavior_evals.py` (experimental), `scripts/metrics.py` |
+| App de arranque (`--with-app`) | app mínima con tests y dependencias fijadas (hoy: **fastapi**) en `starter_apps/` |
+
+## Plugin compartido
+
+Las skills, el verificador y los comandos también se publican como plugin de Claude Code, para que toda la
+organización use la misma versión sin copiarla a cada repo. Se genera desde las mismas plantillas
+(`python3 tools/build_plugin.py`; una prueba falla si el plugin queda desactualizado).
+
+```
+/plugin install aisdlc --marketplace franciscogilt/aisdlc
+```
+
+Con `--plugin`, el proyecto no copia skills/agente/comandos y su `settings.json` habilita el plugin
+(los comandos pasan a llamarse `/aisdlc:new-task`, etc.). **El hook sigue siendo local** al proyecto: así
+funciona aunque el plugin no esté instalado y se puede probar en el CI del proyecto.
+
+## Mantenimiento automático
+
+- `tools/update_versions.py` consulta endoflife.date (runtimes: último ciclo no-EOL con ≥ 60 días; LTS en Node/Java/.NET),
+  los releases de las GitHub Actions y PyPI (dependencias de las apps de arranque). El workflow
+  `update-versions.yml` lo ejecuta cada semana y abre un PR.
+- `E2E` (workflow): por cada app de arranque genera un proyecto, ejecuta los pasos del `ci.yml` generado,
+  los evals del hook, lint del Dockerfile (hadolint), `docker build` y `docker compose up` con prueba de `/health`.
+- `tools/run_ci_locally.py PROYECTO --venv DIR` ejecuta en tu máquina los comandos del `ci.yml` generado.
 
 ## Cómo lo usa un equipo
 
@@ -44,23 +69,34 @@ Después abre `SDLC-README.md` en el proyecto generado y sigue su sección *Conf
 
 ## Qué está verificado y qué no
 
-**Verificado (en este entorno):**
-- 10 pruebas unitarias (`python3 -m unittest discover -s tests`) sobre los 12 stacks: render, JSON/YAML válidos, hook, `--update`, métricas.
-- Hook probado en **sesiones reales de Claude Code 2.1.325**: bloquea migraciones sin ticket, bloquea el bypass por Bash y pide aprobación para instalar paquetes; el comando permitido se ejecuta.
+**Verificado en este entorno:**
+- 25 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
+  `--update`, `--with-app`, `--plugin`, métricas y la lógica de actualización de versiones (con datos de prueba).
+- Hook probado en **sesiones reales de Claude Code 2.1.325**: bloquea migraciones sin ticket, bloquea el bypass por Bash y pide aprobación para instalar paquetes.
 - Los workflows de los 12 stacks pasan `actionlint`; los 12 `docker-compose.yml` pasan `docker compose config`.
-- `run_behavior_evals.py` corrió 3/3 contra Claude real.
+- **FastAPI de punta a punta (sin Docker):** el kit con `--with-app` pasa todos los pasos de su `ci.yml` (instalar, lint, tests, build, `pip-audit`).
+  Esa prueba detectó y corrigió un fallo real: el lint del proyecto marcaba como errores los scripts generados.
+- Plugin: `claude plugin validate` pasa; se instaló desde un marketplace local y Claude Code listó 9 skills/comandos y 1 agente.
+- Las versiones de la app de arranque se fijaron consultando PyPI en vivo.
+
+**Se verifica en GitHub Actions (workflows `Tests` y `E2E`), no en mi entorno:**
+- `docker build`, `docker compose up` y el lint del Dockerfile.
+- La consulta a endoflife.date y a los releases de Actions (`update-versions.yml`): desde mi entorno esas dos fuentes no eran accesibles.
 
 **No verificado (hazlo en tu primer proyecto):**
-- Los **Dockerfiles no se construyeron** (no había daemon de Docker). Tienen `TODO` que ajustar (comando de arranque, carpeta de salida).
-- Los **workflows no se ejecutaron en GitHub**; `claude-code-action` y `scripts/protect-main.sh` requieren tu secreto/permisos de admin.
-- Los comandos de test/lint/build de cada stack son los típicos; confirma que coinciden con tu proyecto.
-- Versiones de runtime y de Actions (`RT` en `starterkit.py`) salen de conocimiento hasta junio 2026: actualízalas; Dependabot las mantiene después.
-- El hook de Bash es heurístico, no un sandbox. Las auditorías de dependencias no cubren Java (usa Dependabot alerts u OWASP dependency-check).
+- Los Dockerfiles de los otros 11 stacks y sus CI no se han ejecutado (solo FastAPI tiene app de arranque).
+- `--plugin` en un proyecto real: las claves `extraKnownMarketplaces` y `enabledPlugins` siguen el formato documentado, pero no probé una sesión con un marketplace de GitHub privado.
+- `claude-code-action` y `scripts/protect-main.sh` requieren tu secreto y permisos de admin.
+- Los comandos de test/lint/build de los demás stacks son los típicos; confirma que coinciden con tu proyecto.
+- El hook de Bash es heurístico, no un sandbox. Las auditorías de dependencias no cubren Java.
 - Rails: el kit no genera Dockerfile porque Rails 8 trae el suyo.
 
 ## Desarrollo
 
 ```bash
+pip install pyyaml
 python3 -m unittest discover -s tests -v
 ```
-Para añadir un stack: una entrada en `STACKS`, `DEPS` y `_PIPE` de `starterkit.py`; las pruebas fallan si falta alguna.
+- Añadir un stack: una entrada en `STACKS`, `DEPS` y `_PIPE` de `starterkit.py`; las pruebas fallan si falta alguna.
+- Añadir una app de arranque: carpeta `starter_apps/<stack>/` con requisitos fijados, agrega el stack a `STARTER_APPS` y a la matriz de `e2e.yml`.
+- Cambiar skills, verificador o comandos: edita las plantillas en `starterkit.py` y ejecuta `python3 tools/build_plugin.py`.

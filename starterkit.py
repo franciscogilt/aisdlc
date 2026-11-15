@@ -335,6 +335,10 @@ VERSION = "1.0.0"
 RT = dict(python="3.13", node="24", java="25", dotnet="10.0", go="1.25",
           ruby="3.4", php="8.4", postgres="17")
 OWNER_DEFAULT = "@TU-ORG/plataforma"
+PLUGIN_NAME = "aisdlc"
+PLUGIN_AUTHOR = "franciscogilt"
+PLUGIN_REPO_DEFAULT = "franciscogilt/aisdlc"
+STARTER_APPS = ("fastapi",)
 MANAGED, OWNED = "managed", "owned"
 
 
@@ -362,7 +366,9 @@ def _step(uses, w=None):
 def _py():
     return dict(
         setup=_step("actions/setup-python@v5", {"python-version": f'"{RT["python"]}"', "cache": "pip"}),
-        install="pip install -r requirements.txt ruff pytest",
+        install=("pip install -r requirements.txt\n"
+                 "if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi\n"
+                 "pip install ruff pytest"),
         audit="pip install pip-audit\npip-audit -r requirements.txt",
         codeql="python", eco=[("pip", "/")], port=8000, cport=8000,
         installs=[r"\bpip3?\s+install\s+\S", r"\bpoetry\s+add\b", r"\buv\s+(add|pip\s+install)\b",
@@ -647,6 +653,8 @@ def compose_for(stack, db):
     if has_db and db == "dynamodb":
         out += "    environment:\n      DYNAMODB_ENDPOINT: http://dynamodb:8000\n"
         out += "    depends_on:\n      - dynamodb\n"
+    # Desde PostgreSQL 18 la imagen espera el volumen en /var/lib/postgresql (no en .../data).
+    pgpath = "/var/lib/postgresql" if int(RT["postgres"]) >= 18 else "/var/lib/postgresql/data"
     if has_db and db == "postgres":
         out += f"""  db:
     image: postgres:{RT["postgres"]}
@@ -657,7 +665,7 @@ def compose_for(stack, db):
     ports:
       - "5432:5432"
     volumes:
-      - dbdata:/var/lib/postgresql/data
+      - dbdata:{pgpath}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app"]
       interval: 5s
@@ -902,7 +910,7 @@ Intent: `intent/<ID>/intent.md`  ·  Plan: `intent/<ID>/plan.md`
 ## Checklist
 - [ ] Hay `intent.md` aceptado, `spec.md` y `plan.md` en el repo
 - [ ] Tests, lint y build pasan localmente y en CI
-- [ ] `@agent-verifier` devolvio PASS (pega el veredicto abajo)
+- [ ] El subagente `verifier` devolvio PASS (pega el veredicto abajo)
 - [ ] Las desviaciones del plan estan anotadas en `plan.md`
 - [ ] Dependencias nuevas: justificadas (por que no alcanza lo nativo, por que es la mejor opcion) o ninguna
 - [ ] Migraciones / infraestructura: ticket CHG-#### en la rama y revision humana
@@ -941,6 +949,7 @@ echo "Proteccion aplicada a main en ${REPO}"
 # HOOK (falla CERRADO) + CONFIGURACION DE CLAUDE CODE
 # ----------------------------------------------------------------------------
 HOOK_PY = r'''#!/usr/bin/env python3
+# ruff: noqa
 """
 PreToolUse gate de la fabrica. Falla CERRADO.
 
@@ -1076,14 +1085,14 @@ if __name__ == "__main__":
 '''
 
 
-def settings_json(stack):
+def settings_json(stack, plugin=False, plugin_repo=None):
     p = pipe(stack)
     ask = ["Bash(git push *)", "Bash(terraform apply*)", "Bash(terraform destroy*)", "Bash(kubectl delete *)"]
     for inst in {"python": ["pip install *", "pip3 install *"], "node": ["npm install *", "npm i *", "npm add *"],
                  "dotnet": ["dotnet add *"], "go": ["go get *"], "ruby": ["bundle add *", "gem install *"],
                  "php": ["composer require *"]}.get(_family(stack), []):
         ask.append(f"Bash({inst})")
-    return {
+    cfg = {
         "permissions": {
             "deny": ["Read(./.env)", "Bash(git push --force *)", "Bash(git push -f *)"],
             "ask": ask,
@@ -1095,6 +1104,10 @@ def settings_json(stack):
                        "timeout": 10}],
         }]},
     }
+    if plugin:
+        cfg["extraKnownMarketplaces"] = {PLUGIN_NAME: {"source": {"source": "github", "repo": plugin_repo}}}
+        cfg["enabledPlugins"] = {f"{PLUGIN_NAME}@{PLUGIN_NAME}": True}
+    return cfg
 
 
 def _family(stack):
@@ -1118,12 +1131,12 @@ Stack: @@stack_label@@ | BD: @@db_label@@ | Nube: @@cloud_label@@ | Deploy: @@de
 
 ## Flujo de trabajo (AI-native SDLC)
 - Cada tarea vive en `intent/<ID>/` con tres archivos: `intent.md` -> `spec.md` -> `plan.md`.
-- Comandos del flujo: `/new-task <ID>`, `/spec <ID>`, `/plan <ID>`, `/build <ID>`, `/verify <ID>`, `/ship <ID>`.
+- Comandos del flujo: `/@@p@@new-task <ID>`, `/@@p@@spec <ID>`, `/@@p@@plan <ID>`, `/@@p@@build <ID>`, `/@@p@@verify <ID>`, `/@@p@@ship <ID>`.
 - Antes de editar codigo, lee el `plan.md` de la tarea. Si no existe, detente y pidelo. No inventes alcance.
 - Empieza toda tarea no trivial en plan mode.
 - Termina cada tarea corriendo tests, lint y build, y corrige los fallos antes de reportar.
 - Si te desvias del plan, escribelo bajo `## Desviaciones` en `plan.md` antes de continuar.
-- Antes de dar algo por terminado, usa `@agent-verifier` y aplica la skill `definition-of-done`.
+- Antes de dar algo por terminado, usa el subagente `verifier` y aplica la skill `definition-of-done`.
 - Para revisar seguridad usa la skill `security-review`.
 
 ## Reglas del stack
@@ -1238,7 +1251,7 @@ description: Checklist de "terminado" para una tarea. Usar antes de reportar una
 - [ ] No hay secretos, `console.log`/prints de depuracion ni codigo comentado.
 - [ ] Migraciones: generadas con la herramienta del framework y reversibles.
 - [ ] La documentacion afectada (README, API, `.env.example`) esta actualizada.
-- [ ] `@agent-verifier` devolvio PASS.
+- [ ] El subagente `verifier` devolvio PASS.
 - [ ] Revision con la skill `security-review` hecha.
 """,
 }
@@ -1262,7 +1275,7 @@ COMMANDS = {
               "corrige los fallos antes de seguir. Si algo no cabe en el plan, anotalo en `## Desviaciones`. "
               "Respeta la politica de dependencias. Al final corre tests, lint y build completos."),
     "verify": ("Verificacion independiente de una tarea", "<ID>",
-               "Usa el subagente `@agent-verifier` para revisar la tarea `$ARGUMENTS` contra su plan.md. "
+               "Usa el subagente `verifier` para revisar la tarea `$ARGUMENTS` contra su plan.md. "
                "Luego aplica la skill `security-review` al diff. Muestrame ambos resultados."),
     "ship": ("Prepara el PR de una tarea", "<ID>",
              "Aplica la skill `definition-of-done` a la tarea `$ARGUMENTS`. Si todo cumple, abre el PR con `gh pr create` "
@@ -1326,6 +1339,7 @@ Basado en: intent/<ID>/spec.md
 # EVALS (hook determinista + comportamiento experimental) Y METRICAS
 # ----------------------------------------------------------------------------
 RUN_HOOK_EVALS = r'''#!/usr/bin/env python3
+# ruff: noqa
 """Evals deterministas del hook: cada caso dice si debe bloquear, pedir aprobacion o permitir.
 Uso: python3 evals/run_hook_evals.py     (exit 0 = todo bien)"""
 import json
@@ -1372,6 +1386,7 @@ sys.exit(1 if failed else 0)
 '''
 
 RUN_BEHAVIOR_EVALS = r'''#!/usr/bin/env python3
+# ruff: noqa
 """EXPERIMENTAL. Evals de comportamiento: corren `claude -p` y revisan la respuesta.
 Requieren Claude Code instalado y autenticado (consumen uso). Corre estos casos al cambiar
 CLAUDE.md, skills o el modelo; agrega un caso nuevo cada vez que descubras un error real.
@@ -1413,6 +1428,7 @@ BEHAVIOR_CASES = [
 ]
 
 METRICS_PY = r'''#!/usr/bin/env python3
+# ruff: noqa
 """Metricas del flujo a partir de Git: por tarea (intent/<ID>/) calcula tiempo de ciclo, commits
 y desviaciones del plan. Uso (desde la raiz del repo):  python3 scripts/metrics.py [--json]"""
 import datetime as dt
@@ -1517,12 +1533,12 @@ Las personas fijan la intencion y aprueban en las puertas; Claude hace el trabaj
 
 | Etapa | Comando | Artefacto | Puerta humana |
 |---|---|---|---|
-| Intencion | `/new-task <ID>` | `intent/<ID>/intent.md` | El PO lo corrige y lo marca `aceptado` |
-| Diseno | `/spec <ID>` | `intent/<ID>/spec.md` | El PO / tech lead lo revisa |
-| Plan | `/plan <ID>` (plan mode) | `intent/<ID>/plan.md` | Un ingeniero lo aprueba |
-| Construccion | `/build <ID>` | codigo + tests | Hooks y permisos vigilan mientras tanto |
-| Verificacion | `/verify <ID>` | veredicto PASS/FAIL | El verificador es independiente |
-| Entrega | `/ship <ID>` | PR | Review humano + CI + code owners |
+| Intencion | `/@@p@@new-task <ID>` | `intent/<ID>/intent.md` | El PO lo corrige y lo marca `aceptado` |
+| Diseno | `/@@p@@spec <ID>` | `intent/<ID>/spec.md` | El PO / tech lead lo revisa |
+| Plan | `/@@p@@plan <ID>` (plan mode) | `intent/<ID>/plan.md` | Un ingeniero lo aprueba |
+| Construccion | `/@@p@@build <ID>` | codigo + tests | Hooks y permisos vigilan mientras tanto |
+| Verificacion | `/@@p@@verify <ID>` | veredicto PASS/FAIL | El verificador es independiente |
+| Entrega | `/@@p@@ship <ID>` | PR | Review humano + CI + code owners |
 
 Regla de oro: las decisiones viven en `intent/`, `spec.md` y `plan.md`, no en chats ni DMs.
 
@@ -1558,34 +1574,35 @@ Regla de oro: las decisiones viven en `intent/`, `spec.md` y `plan.md`, no en ch
 """
 
 
-def build_files(name, stack, db, cloud, deploy, owner, workflow=True):
+def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=False, plugin=False,
+                plugin_repo=PLUGIN_REPO_DEFAULT):
     s, d, c, p = STACKS[stack], DBS[db], CLOUDS[cloud], DEPLOYS[deploy]
     dep, pp = DEPS[stack], pipe(stack)
     F = []
+    px = f"{PLUGIN_NAME}:" if plugin else ""
 
     def add(path, content, mode, exe=False):
         F.append((path, content, mode, exe))
 
     infra = d["rules"] + c["rules"] + p["rules"]
     add("CLAUDE.md", render(
-        CLAUDE_MD, name=name, stack_label=s["label"], db_label=d["label"], cloud_label=c["label"],
+        CLAUDE_MD, name=name, p=px, stack_label=s["label"], db_label=d["label"], cloud_label=c["label"],
         deploy_label=p["label"], test=s["test"], lint=s["lint"], build=s["build"], run=s["run"],
         stack_rules=bullets(s["notes"]), dep_native=dep["native"], dep_libs=dep["libs"],
         dep_verify=f"Como verificar: {dep['verify']}",
         dep_manifests=", ".join(f"`{m}`" for m in dep["manifests"]), infra_rules=bullets(infra)), OWNED)
-    add(".claude/settings.json", json.dumps(settings_json(stack), indent=2) + "\n", OWNED)
+    add(".claude/settings.json", json.dumps(settings_json(stack, plugin, plugin_repo), indent=2) + "\n", OWNED)
     cfg = {"protected": sorted(set(s["protected"] + COMMON_PROTECTED)), "secrets": SECRET_PATTERNS,
            "dependencies": dep["manifests"], "install_patterns": pp["installs"]}
     add(".claude/protected-paths.json", json.dumps(cfg, indent=2) + "\n", OWNED)
     add(".claude/hooks/protected_paths.py", HOOK_PY, MANAGED, True)
-    add(".claude/agents/verifier.md", VERIFIER_MD, MANAGED)
-    for k, v in SKILLS.items():
-        add(f".claude/skills/{k}/SKILL.md", v, MANAGED)
-    for k, (desc, hint, body) in COMMANDS.items():
-        add(f".claude/commands/{k}.md", f"---\ndescription: {desc}\nargument-hint: {hint}\n---\n\n{body}\n", MANAGED)
+    if not plugin:  # con --plugin, el verificador, las skills y los comandos vienen del plugin compartido
+        for rel, content in agent_skill_command_files(".claude").items():
+            add(rel, content, MANAGED)
     add(".claude/factory.json", json.dumps(dict(
         version=VERSION, name=name, stack=stack, db=db, cloud=cloud, deploy=deploy, owner=owner,
-        workflow=workflow), indent=2) + "\n", MANAGED)
+        workflow=workflow, with_app=with_app, plugin=plugin, plugin_repo=plugin_repo),
+        indent=2) + "\n", MANAGED)
 
     for k, v in (("intent", INTENT_MD), ("spec", SPEC_MD), ("plan", PLAN_MD)):
         add(f"intent/_templates/{k}.md", v, OWNED)
@@ -1614,8 +1631,48 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True):
     add("evals/behavior_cases.json", json.dumps(BEHAVIOR_CASES, indent=2, ensure_ascii=False) + "\n", OWNED)
     add("scripts/metrics.py", METRICS_PY, MANAGED, True)
     add("scripts/protect-main.sh", PROTECT_SH, MANAGED, True)
-    add("SDLC-README.md", render(SDLC_README, stack_label=s["label"], version=VERSION), MANAGED)
+    if with_app:
+        for rel, content in starter_app_files(stack).items():
+            add(rel, content, OWNED)
+    add("SDLC-README.md", render(SDLC_README, stack_label=s["label"], version=VERSION, p=px), MANAGED)
     return F
+
+
+def agent_skill_command_files(base):
+    """Verificador, skills y comandos; se usan igual en el proyecto (.claude) y en el plugin."""
+    out = {f"{base}/agents/verifier.md": VERIFIER_MD}
+    for k, v in SKILLS.items():
+        out[f"{base}/skills/{k}/SKILL.md"] = v
+    for k, (desc, hint, body) in COMMANDS.items():
+        out[f"{base}/commands/{k}.md"] = f"---\ndescription: {desc}\nargument-hint: {hint}\n---\n\n{body}\n"
+    return out
+
+
+def starter_app_files(stack):
+    """App minima con tests (carpeta starter_apps/<stack>/ junto a este script)."""
+    root = Path(__file__).resolve().parent / "starter_apps" / stack
+    if not root.is_dir():
+        raise SystemExit(f"No hay app de arranque para '{stack}'. Disponibles: {', '.join(STARTER_APPS) or 'ninguna'}.")
+    return {str(p.relative_to(root)): p.read_text(encoding="utf-8")
+            for p in sorted(root.rglob("*")) if p.is_file() and "__pycache__" not in p.parts
+            and ".pytest_cache" not in p.parts and ".ruff_cache" not in p.parts}
+
+
+def plugin_files():
+    """Contenido del plugin compartido (se escribe en plugin/ y .claude-plugin/ con tools/build_plugin.py)."""
+    files = {f"plugin/{k}": v for k, v in agent_skill_command_files("").items()}
+    files = {k.replace("plugin//", "plugin/"): v for k, v in files.items()}
+    files["plugin/.claude-plugin/plugin.json"] = json.dumps({
+        "name": PLUGIN_NAME, "version": VERSION,
+        "description": "Flujo AI-native SDLC: comandos del ciclo, verificador independiente y skills de "
+                       "seguridad, dependencias y definition of done.",
+        "author": {"name": PLUGIN_AUTHOR}}, indent=2) + "\n"
+    files[".claude-plugin/marketplace.json"] = json.dumps({
+        "name": PLUGIN_NAME, "owner": {"name": PLUGIN_AUTHOR},
+        "description": "Fabrica de software: flujo AI-native SDLC para Claude Code (comandos, verificador, skills).",
+        "plugins": [{"name": PLUGIN_NAME, "source": "./plugin", "version": VERSION,
+                     "description": "Flujo AI-native SDLC (comandos, verificador, skills)."}]}, indent=2) + "\n"
+    return files
 
 
 def bullets(items, empty="- (ninguna)"):
@@ -1684,6 +1741,11 @@ def main(argv=None):
     ap.add_argument("--out", default=".", help="Carpeta destino (por defecto, la actual)")
     ap.add_argument("--no-workflow", action="store_true", help="No generar los workflows de Claude")
     ap.add_argument("--force", action="store_true", help="Sobrescribir archivos existentes")
+    ap.add_argument("--with-app", action="store_true",
+                    help="Incluir una app de arranque con tests (disponible: " + ", ".join(STARTER_APPS) + ")")
+    ap.add_argument("--plugin", action="store_true",
+                    help="Usar el plugin compartido (skills, verificador, comandos) en vez de copiarlos al proyecto")
+    ap.add_argument("--plugin-repo", default=PLUGIN_REPO_DEFAULT, help="Repo GitHub del plugin (owner/repo)")
     ap.add_argument("--update", action="store_true",
                     help="Actualizar archivos gestionados de un proyecto ya generado (lee .claude/factory.json)")
     ap.add_argument("--list", action="store_true", help="Listar opciones disponibles")
@@ -1701,7 +1763,9 @@ def main(argv=None):
             print(f"No existe {meta_path}: este proyecto no fue generado con starterkit.", file=sys.stderr)
             return 2
         m = json.loads(meta_path.read_text(encoding="utf-8"))
-        files = build_files(m["name"], m["stack"], m["db"], m["cloud"], m["deploy"], m["owner"], m["workflow"])
+        files = build_files(m["name"], m["stack"], m["db"], m["cloud"], m["deploy"], m["owner"], m["workflow"],
+                            m.get("with_app", False), m.get("plugin", False),
+                            m.get("plugin_repo", PLUGIN_REPO_DEFAULT))
         rep = write_files(out, files, update=True)
         print(f"Actualizado desde starterkit {VERSION} (generado con {m['version']}):")
     else:
@@ -1710,8 +1774,11 @@ def main(argv=None):
         db = a.db or (ask_choice("Base de datos:", DBS, "postgres") if interactive else "none")
         cloud = a.cloud or (ask_choice("Nube:", CLOUDS, "none") if interactive else "none")
         deploy = a.deploy or (ask_choice("Deploy:", DEPLOYS, "none") if interactive else "none")
+        if a.with_app and stack not in STARTER_APPS:
+            print(f"No hay app de arranque para '{stack}'. Disponibles: {', '.join(STARTER_APPS)}.", file=sys.stderr)
+            return 2
         files = build_files(a.name or out.name or "mi-proyecto", stack, db, cloud, deploy, a.owner,
-                            not a.no_workflow)
+                            not a.no_workflow, a.with_app, a.plugin, a.plugin_repo)
         rep = write_files(out, files, force=a.force)
         print(f"\nStarter kit para {STACKS[stack]['label']} en {out}:")
     for k, v in rep.items():

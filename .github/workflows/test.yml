@@ -16,3 +16,7 @@ jobs:
           python-version: "3.13"
       - run: pip install pyyaml
       - run: python3 -m unittest discover -s tests -v
+      - name: Fuentes de versiones accesibles (consulta en vivo, no escribe)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/update_versions.py --strict

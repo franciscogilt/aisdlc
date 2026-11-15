@@ -1,0 +1,8 @@
+{
+  "name": "aisdlc",
+  "version": "1.0.0",
+  "description": "Flujo AI-native SDLC: comandos del ciclo, verificador independiente y skills de seguridad, dependencias y definition of done.",
+  "author": {
+    "name": "franciscogilt"
+  }
+}

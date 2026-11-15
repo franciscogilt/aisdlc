@@ -1,0 +1,15 @@
+{
+  "name": "aisdlc",
+  "owner": {
+    "name": "franciscogilt"
+  },
+  "description": "Fabrica de software: flujo AI-native SDLC para Claude Code (comandos, verificador, skills).",
+  "plugins": [
+    {
+      "name": "aisdlc",
+      "source": "./plugin",
+      "version": "1.0.0",
+      "description": "Flujo AI-native SDLC (comandos, verificador, skills)."
+    }
+  ]
+}
