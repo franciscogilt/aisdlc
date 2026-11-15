@@ -86,7 +86,7 @@ STACKS = {
         label="Laravel (PHP)",
         test="php artisan test",
         lint="./vendor/bin/pint --test",
-        build="npm run build --if-present",
+        build="[ ! -f package.json ] || npm run build --if-present",
         run="php artisan serve",
         protected=["database/migrations/"],
         notes=[
@@ -338,7 +338,7 @@ OWNER_DEFAULT = "@TU-ORG/plataforma"
 PLUGIN_NAME = "aisdlc"
 PLUGIN_AUTHOR = "franciscogilt"
 PLUGIN_REPO_DEFAULT = "franciscogilt/aisdlc"
-STARTER_APPS = ("fastapi", "django", "express", "dotnet", "springboot", "go", "nextjs", "react", "angular")
+STARTER_APPS = ("fastapi", "django", "express", "dotnet", "springboot", "go", "nextjs", "react", "angular", "laravel", "rails", "quarkus")
 MANAGED, OWNED = "managed", "owned"
 
 
@@ -536,10 +536,12 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 FROM eclipse-temurin:@@java@@-jdk AS build
 WORKDIR /src
 COPY .mvn .mvn
+# unzip: sin el, mvnw baja el tar.gz y falla la verificacion SHA-256 del wrapper (que es del zip)
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 COPY mvnw pom.xml ./
-RUN ./mvnw -B -q dependency:go-offline
 COPY src src
-RUN ./mvnw -B -q -DskipTests package
+# (sin dependency:go-offline: no resuelve bien los plugins de Quarkus)
+RUN ./mvnw -B -DskipTests package
 
 FROM eclipse-temurin:@@java@@-jre
 WORKDIR /app
@@ -577,6 +579,26 @@ FROM gcr.io/distroless/static:nonroot
 COPY --from=build /out/app /app
 EXPOSE 8080
 ENTRYPOINT ["/app"]
+""",
+    "ruby": """\
+FROM ruby:@@ruby@@-slim AS build
+ENV BUNDLE_DEPLOYMENT=1 BUNDLE_WITHOUT="development:test" BUNDLE_PATH=/usr/local/bundle
+WORKDIR /app
+RUN apt-get update -qq && apt-get install -y --no-install-recommends build-essential \\
+    && rm -rf /var/lib/apt/lists/*
+COPY Gemfile Gemfile.lock ./
+RUN bundle install
+
+FROM ruby:@@ruby@@-slim
+ENV RAILS_ENV=production BUNDLE_DEPLOYMENT=1 BUNDLE_WITHOUT="development:test" BUNDLE_PATH=/usr/local/bundle PORT=3000
+WORKDIR /app
+RUN useradd --system --create-home app
+COPY --from=build /usr/local/bundle /usr/local/bundle
+COPY --chown=app:app . .
+USER app
+EXPOSE 3000
+# Requiere SECRET_KEY_BASE en el entorno (ver .env.example); genera uno real con `bin/rails secret`
+CMD ["bin/rails", "server", "-b", "0.0.0.0"]
 """,
     "laravel": """\
 FROM composer:2 AS vendor
@@ -621,8 +643,6 @@ node_modules
 **/__pycache__
 .venv
 target
-bin
-obj
 vendor
 .env
 .env.*
@@ -632,9 +652,9 @@ vendor
 
 
 def dockerfile_for(stack, with_app=False):
-    if stack == "rails":
+    if stack == "rails" and not with_app:
         return None  # Rails 8 ya genera su propio Dockerfile: usa el nativo.
-    key = {"fastapi": "python", "django": "python", "express": "node",
+    key = {"fastapi": "python", "django": "python", "express": "node", "rails": "ruby",
            "react": "spa", "angular": "spa"}.get(stack, stack)
     cmd, note = "", ""
     if stack == "fastapi":
@@ -646,6 +666,8 @@ def dockerfile_for(stack, with_app=False):
     if stack == "dotnet" and with_app:  # la app de arranque tiene su proyecto en src/App
         df = df.replace("dotnet publish -c Release", "dotnet publish src/App/App.csproj -c Release")
         df = df.replace("# TODO: reemplaza App.dll por el ensamblado principal de tu proyecto\n", "")
+    if stack == "laravel" and with_app:  # la app de arranque no usa Vite
+        df = df.replace("# TODO: si usas Vite, compila los assets en una etapa Node antes de este COPY\n", "")
     if stack in ("react", "angular") and with_app:  # carpeta de salida de la app de arranque
         out = "/app/dist/app/browser" if stack == "angular" else "/app/dist"
         df = df.replace("# TODO: carpeta de salida (React/Vite: dist; Angular: dist/<proyecto>/browser)\n", "")
@@ -701,6 +723,10 @@ def env_example(stack, db):
            f"APP_ENV=development\nPORT={p['port']}\n")
     if stack in FRONTEND:
         return out
+    if stack == "laravel":
+        out += "APP_KEY=\nLOG_CHANNEL=stderr\n"  # key:generate rellena APP_KEY; stderr => los errores salen en `docker compose logs`
+    if stack == "rails":
+        out += "SECRET_KEY_BASE=solo-desarrollo-genera-uno-real-con-bin-rails-secret\n"
     if db == "postgres":
         out += "DATABASE_URL=postgresql://app:app@localhost:5432/app\n"
     if db == "dynamodb":
@@ -1636,7 +1662,7 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
         add("Dockerfile", df, OWNED)
     if stack in FRONTEND:
         add("nginx.conf", NGINX_CONF, OWNED)
-    add(".dockerignore", DOCKERIGNORE, OWNED)
+    add(".dockerignore", DOCKERIGNORE + ({"dotnet": "**/bin\n**/obj\n", "laravel": "bootstrap/cache/*.php\nstorage/logs\n"}.get(stack, "")), OWNED)
     add("docker-compose.yml", compose_for(stack, db), OWNED)
     add(".env.example", env_example(stack, db), OWNED)
 
@@ -1648,7 +1674,7 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
     add("scripts/protect-main.sh", PROTECT_SH, MANAGED, True)
     if with_app:
         for rel, content in starter_app_files(stack).items():
-            add(rel, content, OWNED, exe=(rel == "mvnw"))
+            add(rel, content, OWNED, exe=rel in starter_app_exec(stack))
     add("SDLC-README.md", render(SDLC_README, stack_label=s["label"], version=VERSION, p=px), MANAGED)
     return F
 
@@ -1671,6 +1697,12 @@ def starter_app_files(stack):
     return {str(p.relative_to(root)): p.read_text(encoding="utf-8")
             for p in sorted(root.rglob("*")) if p.is_file() and "__pycache__" not in p.parts
             and ".pytest_cache" not in p.parts and ".ruff_cache" not in p.parts}
+
+
+def starter_app_exec(stack):
+    """Archivos de la app de arranque con permiso de ejecucion (mvnw, artisan, bin/rails...)."""
+    root = Path(__file__).resolve().parent / "starter_apps" / stack
+    return {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and os.access(p, os.X_OK)}
 
 
 def plugin_files():

@@ -37,3 +37,18 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+  - package-ecosystem: "composer"
+    directory: "/starter_apps/laravel"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "bundler"
+    directory: "/starter_apps/rails"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "maven"
+    directory: "/starter_apps/quarkus"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
