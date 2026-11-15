@@ -28,6 +28,8 @@ jobs:
           - { stack: springboot, port: 8080 }
           - { stack: go, port: 8080 }
           - { stack: nextjs, port: 3000 }
+          - { stack: react, port: 8080 }
+          - { stack: angular, port: 8080 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

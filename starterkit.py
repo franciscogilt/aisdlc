@@ -159,7 +159,7 @@ STACKS = {
     ),
     "angular": dict(
         label="Angular",
-        test="npm test -- --watch=false --browsers=ChromeHeadless",
+        test="npm test -- --watch=false",
         lint="npm run lint",
         build="npm run build",
         run="npm start",
@@ -338,7 +338,7 @@ OWNER_DEFAULT = "@TU-ORG/plataforma"
 PLUGIN_NAME = "aisdlc"
 PLUGIN_AUTHOR = "franciscogilt"
 PLUGIN_REPO_DEFAULT = "franciscogilt/aisdlc"
-STARTER_APPS = ("fastapi", "django", "express", "dotnet", "springboot", "go", "nextjs")
+STARTER_APPS = ("fastapi", "django", "express", "dotnet", "springboot", "go", "nextjs", "react", "angular")
 MANAGED, OWNED = "managed", "owned"
 
 
@@ -602,6 +602,10 @@ EXPOSE 80
 NGINX_CONF = """server {
   listen 8080;
   root /usr/share/nginx/html;
+  location = /health {
+    default_type application/json;
+    return 200 '{"status":"ok"}';
+  }
   location / {
     try_files $uri /index.html;
   }
@@ -642,6 +646,10 @@ def dockerfile_for(stack, with_app=False):
     if stack == "dotnet" and with_app:  # la app de arranque tiene su proyecto en src/App
         df = df.replace("dotnet publish -c Release", "dotnet publish src/App/App.csproj -c Release")
         df = df.replace("# TODO: reemplaza App.dll por el ensamblado principal de tu proyecto\n", "")
+    if stack in ("react", "angular") and with_app:  # carpeta de salida de la app de arranque
+        out = "/app/dist/app/browser" if stack == "angular" else "/app/dist"
+        df = df.replace("# TODO: carpeta de salida (React/Vite: dist; Angular: dist/<proyecto>/browser)\n", "")
+        df = df.replace("COPY --from=build /app/dist ", f"COPY --from=build {out} ")
     return df
 
 
