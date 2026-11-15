@@ -1,0 +1,18 @@
+name: Evals del hook y la configuracion
+# Se ejecuta cuando cambia la configuracion del agente (equivale a las
+# "continuous evals" del playbook, en su version determinista).
+on:
+  pull_request:
+    paths: [".claude/**", "CLAUDE.md", "evals/**"]
+  push:
+    branches: [main]
+    paths: [".claude/**", "CLAUDE.md", "evals/**"]
+permissions:
+  contents: read
+jobs:
+  hook-evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 evals/run_hook_evals.py

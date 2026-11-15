@@ -1,0 +1,11 @@
+# Reemplaza @franciscogilt por tu equipo real de GitHub.
+# Activa "Require review from Code Owners" en la proteccion de la rama main.
+/.claude/                   @franciscogilt
+/.github/                   @franciscogilt
+/CLAUDE.md                  @franciscogilt
+/infra/                     @franciscogilt
+/terraform/                 @franciscogilt
+/Dockerfile                 @franciscogilt
+/docker-compose.yml         @franciscogilt
+**/alembic/versions/        @franciscogilt
+**/migrations/              @franciscogilt

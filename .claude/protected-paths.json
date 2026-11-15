@@ -1,0 +1,25 @@
+{
+  "protected": [
+    ".github/workflows/",
+    "Dockerfile",
+    "alembic/versions/",
+    "docker-compose",
+    "infra/",
+    "migrations/",
+    "terraform/"
+  ],
+  "secrets": [
+    ".env"
+  ],
+  "dependencies": [
+    "requirements.txt",
+    "pyproject.toml",
+    "Pipfile"
+  ],
+  "install_patterns": [
+    "\\bpip3?\\s+install\\s+\\S",
+    "\\bpoetry\\s+add\\b",
+    "\\buv\\s+(add|pip\\s+install)\\b",
+    "\\bpipenv\\s+install\\s+\\S"
+  ]
+}
