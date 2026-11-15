@@ -338,7 +338,7 @@ OWNER_DEFAULT = "@TU-ORG/plataforma"
 PLUGIN_NAME = "aisdlc"
 PLUGIN_AUTHOR = "franciscogilt"
 PLUGIN_REPO_DEFAULT = "franciscogilt/aisdlc"
-STARTER_APPS = ("fastapi", "django", "express", "dotnet", "springboot")
+STARTER_APPS = ("fastapi", "django", "express", "dotnet", "springboot", "go", "nextjs")
 MANAGED, OWNED = "managed", "owned"
 
 
