@@ -10,3 +10,15 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+  - package-ecosystem: "maven"
+    directory: "/starter_apps/springboot"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "nuget"
+    directories:
+      - "/starter_apps/dotnet/src/App"
+      - "/starter_apps/dotnet/tests/App.Tests"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

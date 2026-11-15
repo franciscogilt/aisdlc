@@ -3,6 +3,7 @@ import ast
 import datetime as dt
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -201,6 +202,26 @@ class StarterAppTests(unittest.TestCase):
             self.assertTrue((p / "package-lock.json").exists())  # `npm ci` lo exige
             self.assertNotIn("node_modules", [c.name for c in p.iterdir()])
             self.assertIn("src/index.js", (p / "Dockerfile").read_text())
+
+    def test_dotnet_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "dotnet", "--db", "postgres", "--with-app", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            for rel in ("global.json", "App.slnx", "src/App/Program.cs", "tests/App.Tests/ApiTests.cs"):
+                self.assertTrue((p / rel).exists(), rel)
+            df = (p / "Dockerfile").read_text()
+            self.assertIn("src/App/App.csproj", df)  # publica el proyecto real, no la solucion
+            self.assertNotIn("TODO", df)
+
+    def test_springboot_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "springboot", "--db", "postgres", "--with-app", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            for rel in ("pom.xml", "checkstyle.xml", ".mvn/wrapper/maven-wrapper.properties",
+                        "src/main/java/com/example/app/App.java"):
+                self.assertTrue((p / rel).exists(), rel)
+            self.assertTrue(os.access(p / "mvnw", os.X_OK))  # el Dockerfile y el CI ejecutan ./mvnw
+            self.assertIn("<java.version>%s</java.version>" % sk.RT["java"], (p / "pom.xml").read_text())
 
     def test_with_app_unsupported_stack(self):
         with tempfile.TemporaryDirectory() as tmp:
