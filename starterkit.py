@@ -332,7 +332,7 @@ SECRET_PATTERNS = [".env"]
 # Actions y las imagenes Docker al dia una vez generado el proyecto.
 # ----------------------------------------------------------------------------
 VERSION = "1.0.0"
-RT = dict(python="3.13", node="24", java="25", dotnet="10.0", go="1.25",
+RT = dict(python="3.13", node="24", java="25", dotnet="10.0", go="1.27",
           ruby="3.4", php="8.4", postgres="17")
 OWNER_DEFAULT = "@TU-ORG/plataforma"
 PLUGIN_NAME = "aisdlc"
