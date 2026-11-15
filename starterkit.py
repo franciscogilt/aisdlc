@@ -86,7 +86,7 @@ STACKS = {
         label="Laravel (PHP)",
         test="php artisan test",
         lint="./vendor/bin/pint --test",
-        build="npm run build --if-present",
+        build="[ ! -f package.json ] || npm run build --if-present",
         run="php artisan serve",
         protected=["database/migrations/"],
         notes=[
@@ -537,9 +537,9 @@ FROM eclipse-temurin:@@java@@-jdk AS build
 WORKDIR /src
 COPY .mvn .mvn
 COPY mvnw pom.xml ./
-RUN ./mvnw -B -q dependency:go-offline
 COPY src src
-RUN ./mvnw -B -q -DskipTests package
+# (sin dependency:go-offline: no resuelve bien los plugins de Quarkus)
+RUN ./mvnw -B -DskipTests package
 
 FROM eclipse-temurin:@@java@@-jre
 WORKDIR /app
@@ -641,8 +641,6 @@ node_modules
 **/__pycache__
 .venv
 target
-bin
-obj
 vendor
 .env
 .env.*
@@ -1662,7 +1660,7 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
         add("Dockerfile", df, OWNED)
     if stack in FRONTEND:
         add("nginx.conf", NGINX_CONF, OWNED)
-    add(".dockerignore", DOCKERIGNORE, OWNED)
+    add(".dockerignore", DOCKERIGNORE + ("**/bin\n**/obj\n" if stack == "dotnet" else ""), OWNED)
     add("docker-compose.yml", compose_for(stack, db), OWNED)
     add(".env.example", env_example(stack, db), OWNED)
 
