@@ -1662,7 +1662,7 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
         add("Dockerfile", df, OWNED)
     if stack in FRONTEND:
         add("nginx.conf", NGINX_CONF, OWNED)
-    add(".dockerignore", DOCKERIGNORE + ("**/bin\n**/obj\n" if stack == "dotnet" else ""), OWNED)
+    add(".dockerignore", DOCKERIGNORE + ({"dotnet": "**/bin\n**/obj\n", "laravel": "bootstrap/cache/*.php\nstorage/logs\n"}.get(stack, "")), OWNED)
     add("docker-compose.yml", compose_for(stack, db), OWNED)
     add(".env.example", env_example(stack, db), OWNED)
 
