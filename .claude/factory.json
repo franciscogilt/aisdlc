@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "proj_springboot",
+  "stack": "springboot",
+  "db": "postgres",
+  "cloud": "aws",
+  "deploy": "none",
+  "owner": "@franciscogilt",
+  "workflow": true,
+  "with_app": true,
+  "plugin": false,
+  "plugin_repo": "franciscogilt/aisdlc"
+}

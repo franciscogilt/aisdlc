@@ -1,0 +1,20 @@
+{
+  "protected": [
+    ".github/workflows/",
+    "Dockerfile",
+    "db/migration/",
+    "docker-compose",
+    "infra/",
+    "src/main/resources/db/",
+    "terraform/"
+  ],
+  "secrets": [
+    ".env"
+  ],
+  "dependencies": [
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts"
+  ],
+  "install_patterns": []
+}

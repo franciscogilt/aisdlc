@@ -1,0 +1,29 @@
+name: Claude review (modo observacion)
+# Claude comenta el PR pero NO bloquea el merge. Gana confianza primero;
+# cuando sus hallazgos sean fiables, conviertelo en check obligatorio.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Revisa este PR contra CLAUDE.md y contra el plan.md de la tarea en intent/.
+            Usa la skill security-review. Reporta solo hallazgos reales, con archivo:linea y severidad:
+            1. Cambios fuera del alcance del plan.
+            2. Problemas de seguridad.
+            3. Dependencias nuevas que no esten justificadas segun la politica de CLAUDE.md.
+            4. Tests faltantes para el comportamiento nuevo.
+          claude_args: "--max-turns 8"
