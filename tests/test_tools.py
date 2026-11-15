@@ -240,6 +240,16 @@ class StarterAppTests(unittest.TestCase):
             self.assertTrue((p / "public").is_dir())  # el Dockerfile copia public/
             self.assertIn("standalone", (p / "next.config.mjs").read_text())
 
+    def test_spa_apps_serve_health_and_copy_the_real_output(self):
+        for stack, out in (("react", "/app/dist "), ("angular", "/app/dist/app/browser ")):
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(sk.main(["--stack", stack, "--with-app", "--out", tmp]), 0)
+                p = pathlib.Path(tmp)
+                self.assertIn(out, (p / "Dockerfile").read_text())
+                self.assertNotIn("TODO", (p / "Dockerfile").read_text())
+                self.assertIn("/health", (p / "nginx.conf").read_text())
+                self.assertTrue((p / "package-lock.json").exists())
+
     def test_with_app_unsupported_stack(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(sk.main(["--stack", "rails", "--with-app", "--out", tmp]), 2)

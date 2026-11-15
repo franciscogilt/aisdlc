@@ -27,3 +27,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+  - package-ecosystem: "npm"
+    directory: "/starter_apps/react"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "npm"
+    directory: "/starter_apps/angular"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
