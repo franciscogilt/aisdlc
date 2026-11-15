@@ -1,0 +1,157 @@
+"""Pruebas de las herramientas nuevas: versiones automaticas, plugin compartido y app de arranque."""
+import ast
+import datetime as dt
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def load(name, rel):
+    spec = importlib.util.spec_from_file_location(name, ROOT / rel)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+sk = load("starterkit", "starterkit.py")
+uv = load("update_versions", "tools/update_versions.py")
+TODAY = dt.date(2026, 11, 15)
+
+
+def cyc(cycle, released, eol=False, lts=False):
+    return {"cycle": cycle, "releaseDate": released, "eol": eol, "lts": lts}
+
+
+class PickCycleTests(unittest.TestCase):
+    def test_skips_eol_and_too_recent(self):
+        cycles = [cyc("3.15", "2026-10-01"),            # muy reciente (< 60 dias)
+                  cyc("3.14", "2025-10-07"),
+                  cyc("3.13", "2024-10-07"),
+                  cyc("3.9", "2020-10-05", eol="2025-10-31")]
+        self.assertEqual(uv.pick_cycle(cycles, False, TODAY), "3.14")
+
+    def test_lts_only(self):
+        cycles = [cyc("25", "2025-10-15", lts="2025-10-28"), cyc("24", "2025-05-06", eol="2026-01-01"),
+                  cyc("26", "2026-05-01", lts="2026-12-01"),    # aun no es LTS
+                  cyc("22", "2024-04-24", lts="2024-10-29")]
+        self.assertEqual(uv.pick_cycle(cycles, True, TODAY), "25")
+
+    def test_numeric_ordering(self):
+        cycles = [cyc("9", "2020-01-01"), cyc("17", "2024-01-01"), cyc("10", "2021-01-01")]
+        self.assertEqual(uv.pick_cycle(cycles, False, TODAY), "17")
+
+    def test_nothing_eligible(self):
+        self.assertIsNone(uv.pick_cycle([cyc("1", "2026-11-01")], False, TODAY))
+
+    def test_major_of(self):
+        self.assertEqual(uv.major_of("v5.0.1"), "v5")
+        self.assertIsNone(uv.major_of("codeql-bundle-v2.1"))
+        self.assertIsNone(uv.major_of(None))
+
+
+class PlanTests(unittest.TestCase):
+    def test_plan_starterkit_updates_runtimes_and_actions(self):
+        text = ('RT = dict(python="3.12", node="24")\n'
+                '_step("actions/setup-python@v4")\n- uses: github/codeql-action/init@v2\n')
+        new, changes = uv.plan_starterkit(text, {"python": "3.14", "node": "24"},
+                                          {"actions/setup-python": "v5", "github/codeql-action": "v3"})
+        self.assertIn('python="3.14"', new)
+        self.assertIn("setup-python@v5", new)
+        self.assertIn("codeql-action/init@v3", new)
+        self.assertEqual(len(changes), 3)
+
+    def test_plan_pins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sa = pathlib.Path(tmp) / "starter_apps" / "x"
+            sa.mkdir(parents=True)
+            req = sa / "requirements.txt"
+            req.write_text("fastapi==0.1.0\n-r other.txt\nuvicorn[standard]==0.2.0\n")
+            old_root = uv.ROOT
+            uv.ROOT = pathlib.Path(tmp)
+            try:
+                new, changes = uv.plan_pins(req, lambda pkg: {"fastapi": "9.9.9", "uvicorn": "0.2.0"}[pkg])
+            finally:
+                uv.ROOT = old_root
+            self.assertIn("fastapi==9.9.9", new)
+            self.assertIn("uvicorn[standard]==0.2.0", new)
+            self.assertIn("-r other.txt", new)
+            self.assertEqual(len(changes), 1)
+
+    def test_current_pins_in_repo_are_exact(self):
+        for req in (ROOT / "starter_apps").glob("*/requirements*.txt"):
+            for line in req.read_text().splitlines():
+                self.assertTrue(line.startswith("-r ") or "==" in line, f"{req}: {line!r} sin version fija")
+                self.assertNotIn("0.0.0", line)
+
+
+class PluginTests(unittest.TestCase):
+    def test_plugin_is_in_sync_with_templates(self):
+        r = subprocess.run([sys.executable, "tools/build_plugin.py", "--check"], cwd=ROOT,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_plugin_manifests(self):
+        files = sk.plugin_files()
+        plugin = json.loads(files["plugin/.claude-plugin/plugin.json"])
+        market = json.loads(files[".claude-plugin/marketplace.json"])
+        self.assertEqual(plugin["name"], "aisdlc")
+        self.assertEqual(market["plugins"][0]["source"], "./plugin")
+        self.assertIn("plugin/agents/verifier.md", files)
+        self.assertIn("plugin/skills/security-review/SKILL.md", files)
+        self.assertIn("plugin/commands/new-task.md", files)
+
+    def test_plugin_mode_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "go", "--plugin", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            self.assertFalse((p / ".claude/skills").exists())
+            self.assertFalse((p / ".claude/commands").exists())
+            self.assertFalse((p / ".claude/agents").exists())
+            self.assertTrue((p / ".claude/hooks/protected_paths.py").exists())  # el hook sigue siendo local
+            settings = json.loads((p / ".claude/settings.json").read_text())
+            self.assertTrue(settings["enabledPlugins"]["aisdlc@aisdlc"])
+            self.assertEqual(settings["extraKnownMarketplaces"]["aisdlc"]["source"]["repo"], "franciscogilt/aisdlc")
+            self.assertIn("/aisdlc:new-task", (p / "CLAUDE.md").read_text())
+
+    def test_local_mode_keeps_plain_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sk.main(["--stack", "go", "--out", tmp])
+            p = pathlib.Path(tmp)
+            self.assertTrue((p / ".claude/skills/security-review/SKILL.md").exists())
+            claude_md = (p / "CLAUDE.md").read_text()
+            self.assertIn("`/new-task <ID>`", claude_md)
+            self.assertNotIn("aisdlc:", claude_md)
+            self.assertNotIn("enabledPlugins", (p / ".claude/settings.json").read_text())
+
+
+class StarterAppTests(unittest.TestCase):
+    def test_with_app_generates_runnable_project_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "fastapi", "--db", "postgres", "--with-app", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            for rel in ("app/main.py", "tests/test_api.py", "requirements.txt", "requirements-dev.txt",
+                        "pyproject.toml"):
+                self.assertTrue((p / rel).exists(), rel)
+            ast.parse((p / "app/main.py").read_text())
+            self.assertIn("requirements-dev.txt", (p / ".github/workflows/ci.yml").read_text())
+            meta = json.loads((p / ".claude/factory.json").read_text())
+            self.assertTrue(meta["with_app"])
+
+    def test_with_app_unsupported_stack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "go", "--with-app", "--out", tmp]), 2)
+
+    def test_generated_python_tooling_is_lint_exempt(self):
+        for rel, content, _m, _e in sk.build_files("d", "fastapi", "none", "none", "none", "@o/t"):
+            if rel.endswith(".py"):
+                self.assertIn("# ruff: noqa", content, rel)
+
+
+if __name__ == "__main__":
+    unittest.main()

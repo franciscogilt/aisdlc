@@ -1,0 +1,41 @@
+name: Actualizar versiones
+# Cada semana consulta los registros y abre un PR si hay versiones nuevas
+# (runtimes, GitHub Actions y dependencias de las apps de arranque).
+# Requiere: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+on:
+  schedule:
+    - cron: "17 11 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Consultar y aplicar versiones
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/update_versions.py --write --strict | tee "$RUNNER_TEMP/versions.txt"
+      - name: Abrir PR si hay cambios
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "Sin cambios de versiones."
+            exit 0
+          fi
+          branch="chore/actualizar-versiones-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -am "chore: actualizar versiones de runtimes, Actions y dependencias"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore: actualizar versiones" \
+            --body "$(printf 'Cambios detectados por tools/update_versions.py:\n\n```\n%s\n```\n\nRevisa que los workflows Tests y E2E pasen antes de fusionar.' "$(cat "$RUNNER_TEMP/versions.txt")")"
