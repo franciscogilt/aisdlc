@@ -1,0 +1,45 @@
+name: locks
+on:
+  push:
+    branches: [locks-tmp]
+permissions:
+  contents: write
+jobs:
+  locks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: composer
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Laravel
+        working-directory: starter_apps/laravel
+        run: |
+          cp .env.example .env 2>/dev/null || printf 'APP_ENV=testing\nAPP_KEY=\n' > .env
+          composer update --no-interaction --no-scripts --prefer-dist
+          php artisan key:generate
+          ./vendor/bin/pint
+          ./vendor/bin/pint --test
+          php artisan test
+          rm -f .env
+      - name: Rails
+        working-directory: starter_apps/rails
+        run: |
+          bundle lock --add-platform x86_64-linux aarch64-linux
+          bundle install
+          bundle exec rubocop -A || true
+          bundle exec rubocop
+          bin/rails test
+          bin/rails zeitwerk:check
+      - name: Publicar locks y formato
+        run: |
+          rm -rf starter_apps/laravel/vendor starter_apps/laravel/.env starter_apps/laravel/bootstrap/cache/*.php starter_apps/laravel/.phpunit.result.cache starter_apps/laravel/.phpunit.cache
+          git config user.name locks
+          git config user.email locks@users.noreply.github.com
+          git add -A starter_apps
+          git commit -qm "locks y formato" || true
+          git push origin HEAD:locks-tmp
