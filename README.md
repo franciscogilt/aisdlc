@@ -59,6 +59,15 @@ funciona aunque el plugin no esté instalado y se puede probar en el CI del proy
   los evals del hook, lint del Dockerfile (hadolint), `docker build` y `docker compose up` con prueba de `/health`.
 - `tools/run_ci_locally.py PROYECTO --venv DIR` ejecuta en tu máquina los comandos del `ci.yml` generado.
 
+## Proyecto que ya existe
+
+El kit se puede aplicar sobre un repositorio con código (no pisa nada: lo que ya existe se omite o queda como `*.starter.*`).
+Al hacerlo adapta lo que detecta y lo avisa al terminar:
+- **Node:** usa pnpm o yarn si hay `pnpm-lock.yaml` / `yarn.lock` (CI y Dockerfile con corepack); si falta el script `lint`, `test` o `build`, el CI lo omite (`--if-present`) en vez de fallar.
+- **Runtime:** respeta la versión declarada en `runtime.txt`, `.python-version`, `.nvmrc` o `.ruby-version` en lugar de imponer la de la fábrica.
+
+Probado sobre dos repos reales (un Next.js con pnpm y un Django de 2022): el CI ya no falla por suposiciones del kit y, en cambio, marca lo que de verdad hay que arreglar (lint, vulnerabilidades, tests ausentes).
+
 ## Cómo lo usa un equipo
 
 1. `intent.md` → `spec.md` → `plan.md` por tarea, en `intent/<ID>/`; cada artefacto se commitea.
@@ -70,7 +79,7 @@ funciona aunque el plugin no esté instalado y se puede probar en el CI del proy
 ## Qué está verificado y qué no
 
 **Verificado en este entorno:**
-- 37 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
+- 41 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
   `--update`, `--with-app`, `--plugin`, métricas y la lógica de actualización de versiones (con datos de prueba).
 - Hook probado en **sesiones reales de Claude Code 2.1.325**: bloquea migraciones sin ticket, bloquea el bypass por Bash y pide aprobación para instalar paquetes.
 - Los workflows de los 12 stacks pasan `actionlint`; los 12 `docker-compose.yml` pasan `docker compose config`.
