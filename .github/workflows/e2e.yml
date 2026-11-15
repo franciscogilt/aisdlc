@@ -84,5 +84,7 @@ jobs:
             sleep 1
           done
           docker compose logs --no-color | tail -30
+          echo '--- primeras lineas de la app (sin /health) ---'
+          docker compose logs --no-color app | grep -v '"GET /health' | head -40 | cut -c1-400
           docker compose down -v
           test "$ok" = 1
