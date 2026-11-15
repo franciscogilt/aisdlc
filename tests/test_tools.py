@@ -223,6 +223,23 @@ class StarterAppTests(unittest.TestCase):
             self.assertTrue(os.access(p / "mvnw", os.X_OK))  # el Dockerfile y el CI ejecutan ./mvnw
             self.assertIn("<java.version>%s</java.version>" % sk.RT["java"], (p / "pom.xml").read_text())
 
+    def test_go_app_has_no_third_party_deps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "go", "--db", "postgres", "--with-app", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            for rel in ("go.mod", "main.go", "server.go", "server_test.go"):
+                self.assertTrue((p / rel).exists(), rel)
+            self.assertNotIn("require", (p / "go.mod").read_text())  # politica: solo libreria estandar
+            self.assertIn("go %s" % sk.RT["go"], (p / "go.mod").read_text())
+
+    def test_nextjs_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "nextjs", "--db", "postgres", "--with-app", "--out", tmp]), 0)
+            p = pathlib.Path(tmp)
+            self.assertTrue((p / "package-lock.json").exists())
+            self.assertTrue((p / "public").is_dir())  # el Dockerfile copia public/
+            self.assertIn("standalone", (p / "next.config.mjs").read_text())
+
     def test_with_app_unsupported_stack(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(sk.main(["--stack", "rails", "--with-app", "--out", tmp]), 2)
