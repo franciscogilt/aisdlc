@@ -1,0 +1,48 @@
+name: scaffold
+on:
+  push:
+    branches: [scaffold-tmp2]
+permissions:
+  contents: write
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: composer
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Generar andamios
+        run: |
+          mkdir -p /tmp/out && cd /tmp/out
+          composer create-project laravel/laravel laravel --prefer-dist --no-interaction
+          gem install rails --no-document
+          rails -v
+          rails new rails --minimal --skip-git --skip-bundle --skip-kamal --skip-solid --skip-docker=false --database=sqlite3 || rails new rails --minimal --skip-git --skip-bundle
+          curl -fsS "https://code.quarkus.io/d?g=com.example&a=app&e=rest&j=25&b=MAVEN&nc=true" -o q.zip
+          unzip -q q.zip -d quarkus_tmp && mv quarkus_tmp/* quarkus
+          php -v | head -1; ruby -v; cat laravel/composer.json | head -40
+      - name: Publicar en la rama scaffold-out
+        run: |
+          mkdir -p /tmp/pub
+          cd /tmp/out
+          rm -rf laravel/vendor laravel/node_modules laravel/.git rails/.git quarkus/target
+          cp -r laravel rails quarkus /tmp/pub/
+          cd "$GITHUB_WORKSPACE"
+          git config user.name scaffold
+          git config user.email scaffold@users.noreply.github.com
+          git checkout --orphan scaffold-out
+          git rm -rf -q --cached . 
+          find . -mindepth 1 -maxdepth 1 -not -name .git -exec rm -rf {} +
+          cp -r /tmp/pub/* .
+          git add -f -A .
+          git commit -qm "scaffold output"
+          git push -f origin scaffold-out
