@@ -1,0 +1,10 @@
+venv
+*.pyc
+.env
+staticfiles/
+
+# Text backup files
+*.bak
+
+# Database
+*.sqlite3
