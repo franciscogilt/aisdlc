@@ -19,12 +19,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stack: [fastapi]   # agrega aqui cada stack que tenga carpeta en starter_apps/
+        # una entrada por cada stack con carpeta en starter_apps/ (una prueba lo comprueba)
+        include:
+          - { stack: fastapi, port: 8000 }
+          - { stack: django, port: 8000 }
+          - { stack: express, port: 3000 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - name: Instalar utilidades
         run: pip install pyyaml
       - name: Generar el proyecto
@@ -47,7 +54,7 @@ jobs:
           docker compose up -d --build --wait
           ok=0
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8000/health; then ok=1; break; fi
+            if curl -fsS "http://localhost:${{ matrix.port }}/health"; then ok=1; break; fi
             sleep 1
           done
           docker compose logs --no-color | tail -30

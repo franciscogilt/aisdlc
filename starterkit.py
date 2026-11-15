@@ -338,7 +338,7 @@ OWNER_DEFAULT = "@TU-ORG/plataforma"
 PLUGIN_NAME = "aisdlc"
 PLUGIN_AUTHOR = "franciscogilt"
 PLUGIN_REPO_DEFAULT = "franciscogilt/aisdlc"
-STARTER_APPS = ("fastapi",)
+STARTER_APPS = ("fastapi", "django", "express")
 MANAGED, OWNED = "managed", "owned"
 
 
@@ -441,7 +441,7 @@ def _php():
 
 
 _PIPE = {
-    "fastapi": _py, "django": _py, "dotnet": _dotnet, "springboot": _java, "quarkus": _java,
+    "fastapi": _py, "django": lambda: {**_py(), "ci_env": {"APP_ENV": "development"}}, "dotnet": _dotnet, "springboot": _java, "quarkus": _java,
     "laravel": _php, "go": _go, "rails": _ruby,
     "express": lambda: _node(3000), "nextjs": lambda: _node(3000),
     "react": lambda: _node(8080), "angular": lambda: _node(8080),
@@ -786,6 +786,9 @@ def ci_yml(stack, db):
 """
         env = ("    env:\n      DYNAMODB_ENDPOINT: http://localhost:8000\n      AWS_REGION: us-east-1\n"
                "      AWS_ACCESS_KEY_ID: local\n      AWS_SECRET_ACCESS_KEY: local\n")
+    if p.get("ci_env"):
+        extra = "".join(f"      {k}: {v}\n" for k, v in p["ci_env"].items())
+        env = env + extra if env else "    env:\n" + extra
     lint = s["lint"] + ("\n" + p["lint_extra"] if p.get("lint_extra") else "")
     audit = ""
     if p["audit"]:
