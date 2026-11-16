@@ -319,5 +319,27 @@ class ExistingProjectTests(unittest.TestCase):
         self.gen("express", {"package.json": "{no es json"})
 
 
+class AdoptModeTests(unittest.TestCase):
+    def test_adopt_then_strict_by_stages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ci = pathlib.Path(tmp) / ".github/workflows/ci.yml"
+            self.assertEqual(sk.main(["--stack", "fastapi", "--adopt", "--out", tmp]), 0)
+            self.assertEqual(ci.read_text().count("continue-on-error"), 2)  # lint y auditoria, nada mas
+            self.assertEqual(sk.main(["--strict", "lint", "--out", tmp]), 0)
+            self.assertEqual(ci.read_text().count("continue-on-error"), 1)
+            self.assertIn("adopcion:audit", ci.read_text())
+            self.assertEqual(sk.main(["--update", "--out", tmp]), 0)  # update no revierte el modo
+            self.assertEqual(ci.read_text().count("continue-on-error"), 1)
+            self.assertEqual(sk.main(["--strict", "all", "--out", tmp]), 0)
+            self.assertNotIn("continue-on-error", ci.read_text())
+            meta = json.loads((pathlib.Path(tmp) / ".claude/factory.json").read_text())
+            self.assertFalse(meta["adopt"])
+
+    def test_default_is_strict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "go", "--out", tmp]), 0)
+            self.assertNotIn("continue-on-error", (pathlib.Path(tmp) / ".github/workflows/ci.yml").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

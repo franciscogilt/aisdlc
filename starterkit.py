@@ -797,7 +797,7 @@ CODEQL_JOB = """
 """
 
 
-def ci_yml(stack, db):
+def ci_yml(stack, db, adopt=False):
     p, s = pipe(stack), STACKS[stack]
     services, env = "", ""
     if db == "postgres" and stack not in FRONTEND:
@@ -832,10 +832,53 @@ def ci_yml(stack, db):
     if p["audit"]:
         audit = ("      - name: Auditoria de dependencias\n        run: |\n" + indent(p["audit"], 10))
     codeql = render(CODEQL_JOB, lang=p["codeql"]) if p["codeql"] else ""
-    return render(CI_YML, services=services + env, setup=p["setup"],
+    return _adopt_ci(render(CI_YML, services=services + env, setup=p["setup"],
                   install=indent(p["install"], 10), lint=indent(lint, 10),
                   test=indent(s["test"], 10), build=indent(s["build"], 10),
-                  audit="\n" + audit if audit else "", codeql=codeql)
+                  audit="\n" + audit if audit else "", codeql=codeql), adopt)
+
+
+ADOPT_STEPS = {"lint": "Lint", "audit": "Auditoria de dependencias"}
+
+
+def _adopt_ci(text, adopt):
+    """Modo adopcion: lint y auditoria avisan pero no bloquean (cada paso lleva una marca para endurecerlo)."""
+    if not adopt:
+        return text
+    for key, step in ADOPT_STEPS.items():
+        text = text.replace(f"      - name: {step}\n        run:",
+                            f"      - name: {step}\n        continue-on-error: true  # adopcion:{key} (quitar con --strict {key})\n"
+                            f"        run:")
+    return text
+
+
+CODE_MARKERS = ("package.json", "requirements.txt", "pyproject.toml", "Pipfile", "pom.xml", "build.gradle", "go.mod",
+                "composer.json", "Gemfile", "manage.py")
+
+
+def has_existing_code(out):
+    return any((out / m).exists() for m in CODE_MARKERS) or any(out.glob("*.csproj")) or any(out.glob("*.sln*"))
+
+
+def harden(out, what):
+    """--strict: quita continue-on-error de los pasos pedidos ('lint', 'audit' o 'all'). Devuelve los endurecidos."""
+    ci = out / ".github" / "workflows" / "ci.yml"
+    if not ci.exists():
+        return []
+    keys = list(ADOPT_STEPS) if what == "all" else [what]
+    text, done = ci.read_text(encoding="utf-8"), []
+    for k in keys:
+        marker = f"        continue-on-error: true  # adopcion:{k} (quitar con --strict {k})\n"
+        if marker in text:
+            text = text.replace(marker, "")
+            done.append(k)
+    ci.write_text(text, encoding="utf-8")
+    meta = out / ".claude" / "factory.json"
+    if meta.exists() and "adopcion:" not in text:
+        m = json.loads(meta.read_text(encoding="utf-8"))
+        m["adopt"] = False
+        meta.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
+    return done
 
 
 CLAUDE_YML = """name: Claude Code (@claude)
@@ -1616,7 +1659,7 @@ Regla de oro: las decisiones viven en `intent/`, `spec.md` y `plan.md`, no en ch
 
 
 def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=False, plugin=False,
-                plugin_repo=PLUGIN_REPO_DEFAULT):
+                plugin_repo=PLUGIN_REPO_DEFAULT, adopt=False):
     s, d, c, p = STACKS[stack], DBS[db], CLOUDS[cloud], DEPLOYS[deploy]
     dep, pp = DEPS[stack], pipe(stack)
     F = []
@@ -1642,13 +1685,13 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
             add(rel, content, MANAGED)
     add(".claude/factory.json", json.dumps(dict(
         version=VERSION, name=name, stack=stack, db=db, cloud=cloud, deploy=deploy, owner=owner,
-        workflow=workflow, with_app=with_app, plugin=plugin, plugin_repo=plugin_repo),
+        workflow=workflow, with_app=with_app, plugin=plugin, plugin_repo=plugin_repo, adopt=adopt),
         indent=2) + "\n", MANAGED)
 
     for k, v in (("intent", INTENT_MD), ("spec", SPEC_MD), ("plan", PLAN_MD)):
         add(f"intent/_templates/{k}.md", v, OWNED)
 
-    add(".github/workflows/ci.yml", ci_yml(stack, db), OWNED)
+    add(".github/workflows/ci.yml", ci_yml(stack, db, adopt), OWNED)
     add(".github/workflows/factory-checks.yml", CHECKS_YML, MANAGED)
     if workflow:
         add(".github/workflows/claude.yml", CLAUDE_YML, MANAGED)
@@ -1890,6 +1933,10 @@ def main(argv=None):
     ap.add_argument("--plugin", action="store_true",
                     help="Usar el plugin compartido (skills, verificador, comandos) en vez de copiarlos al proyecto")
     ap.add_argument("--plugin-repo", default=PLUGIN_REPO_DEFAULT, help="Repo GitHub del plugin (owner/repo)")
+    ap.add_argument("--adopt", action="store_true",
+                    help="Proyecto existente: lint y auditoria avisan pero no bloquean el CI (endurece con --strict)")
+    ap.add_argument("--strict", choices=["lint", "audit", "all"],
+                    help="Quita el modo adopcion del paso indicado en .github/workflows/ci.yml y termina")
     ap.add_argument("--update", action="store_true",
                     help="Actualizar archivos gestionados de un proyecto ya generado (lee .claude/factory.json)")
     ap.add_argument("--list", action="store_true", help="Listar opciones disponibles")
@@ -1901,6 +1948,10 @@ def main(argv=None):
         return 0
 
     out = Path(a.out).resolve()
+    if a.strict:
+        done = harden(out, a.strict)
+        print("Endurecido: " + ", ".join(done) if done else "Nada que endurecer (ya es estricto o no hay ci.yml).")
+        return 0
     notes = []
     if a.update:
         meta_path = out / ".claude" / "factory.json"
@@ -1910,7 +1961,10 @@ def main(argv=None):
         m = json.loads(meta_path.read_text(encoding="utf-8"))
         files = build_files(m["name"], m["stack"], m["db"], m["cloud"], m["deploy"], m["owner"], m["workflow"],
                             m.get("with_app", False), m.get("plugin", False),
-                            m.get("plugin_repo", PLUGIN_REPO_DEFAULT))
+                            m.get("plugin_repo", PLUGIN_REPO_DEFAULT), m.get("adopt", False))
+        files, notes = adapt_node_project(files, out, m["stack"]) if not m.get("with_app") else (files, [])
+        files, more = adapt_runtime(files, out, m["stack"]) if not m.get("with_app") else (files, [])
+        notes = []  # los avisos ya se mostraron al adoptar
         rep = write_files(out, files, update=True)
         print(f"Actualizado desde starterkit {VERSION} (generado con {m['version']}):")
     else:
@@ -1923,8 +1977,14 @@ def main(argv=None):
             print(f"No hay app de arranque para '{stack}'. Disponibles: {', '.join(STARTER_APPS)}.", file=sys.stderr)
             return 2
         files = build_files(a.name or out.name or "mi-proyecto", stack, db, cloud, deploy, a.owner,
-                            not a.no_workflow, a.with_app, a.plugin, a.plugin_repo)
+                            not a.no_workflow, a.with_app, a.plugin, a.plugin_repo, a.adopt)
         notes = []
+        if not a.adopt and not a.with_app and has_existing_code(out):
+            notes.append("Este directorio ya tiene codigo. Si el CI nace en rojo por lint o vulnerabilidades heredadas, "
+                         "usa --adopt (avisan sin bloquear) y endurece despues con --strict lint / --strict audit.")
+        if a.adopt:
+            notes.append("Modo adopcion: lint y auditoria NO bloquean el CI todavia. Cuando esten limpios: "
+                         "python3 starterkit.py --strict all --out .")
         if not a.with_app:
             files, notes = adapt_node_project(files, out, stack)
             files, more = adapt_runtime(files, out, stack)
