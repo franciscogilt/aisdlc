@@ -21,9 +21,9 @@ jobs:
       matrix:
         # una entrada por cada stack con carpeta en starter_apps/ (una prueba lo comprueba)
         include:
-          - { stack: fastapi, port: 8000 }
-          - { stack: django, port: 8000 }
-          - { stack: express, port: 3000 }
+          - { stack: fastapi, port: 8000, db: true }
+          - { stack: django, port: 8000, db: true }
+          - { stack: express, port: 3000, db: true }
           - { stack: dotnet, port: 8080 }
           - { stack: springboot, port: 8080 }
           - { stack: go, port: 8080 }
@@ -83,6 +83,12 @@ jobs:
             if curl -fsS "http://localhost:${{ matrix.port }}/health"; then ok=1; break; fi
             sleep 1
           done
+          if [ "$ok" = 1 ] && [ "${{ matrix.db }}" = "true" ]; then
+            # La app guarda en Postgres: crear un item y leerlo prueba migraciones + conexion de punta a punta.
+            curl -fsS -X POST "http://localhost:${{ matrix.port }}/items" -H 'content-type: application/json' \
+              -d '{"name":"e2e","quantity":1}' || ok=0
+            curl -fsS "http://localhost:${{ matrix.port }}/items" | tee /dev/stderr | grep -q '"e2e"' || ok=0
+          fi
           docker compose logs --no-color | tail -30
           echo '--- primeras lineas de la app (sin /health) ---'
           docker compose logs --no-color app | grep -v '"GET /health' | head -40 | cut -c1-400

@@ -1,13 +1,17 @@
 import express from "express";
 
-export function createApp() {
+import { memoryRepo } from "./repo.js";
+
+export function createApp({ repo = memoryRepo() } = {}) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "100kb" }));
 
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-  app.post("/items", (req, res) => {
+  app.get("/items", async (_req, res) => res.json(await repo.list()));
+
+  app.post("/items", async (req, res) => {
     const { name, quantity } = req.body ?? {};
     const errors = {};
     if (typeof name !== "string" || name.length < 1 || name.length > 80) {
@@ -17,7 +21,7 @@ export function createApp() {
       errors.quantity = "entero de 1 a 1000";
     }
     if (Object.keys(errors).length > 0) return res.status(422).json({ errors });
-    return res.status(201).json({ name, quantity });
+    return res.status(201).json(await repo.add(name, quantity));
   });
 
   // Manejo de errores: JSON invalido -> 400; cualquier otro -> 500 sin filtrar detalles internos.

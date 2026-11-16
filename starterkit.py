@@ -666,6 +666,10 @@ def dockerfile_for(stack, with_app=False):
     if stack == "dotnet" and with_app:  # la app de arranque tiene su proyecto en src/App
         df = df.replace("dotnet publish -c Release", "dotnet publish src/App/App.csproj -c Release")
         df = df.replace("# TODO: reemplaza App.dll por el ensamblado principal de tu proyecto\n", "")
+    if stack == "django" and with_app:  # la app guarda en BD: aplica las migraciones antes de servir
+        df = df.replace('CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]',
+                        'CMD ["sh", "-c", "python manage.py migrate --noinput && '
+                        'exec gunicorn config.wsgi:application --bind 0.0.0.0:8000"]')
     if stack == "laravel" and with_app:  # la app de arranque no usa Vite
         df = df.replace("# TODO: si usas Vite, compila los assets en una etapa Node antes de este COPY\n", "")
     if stack in ("react", "angular") and with_app:  # carpeta de salida de la app de arranque
