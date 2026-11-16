@@ -3,6 +3,7 @@ name: E2E
 # los comandos del ci.yml, los evals del hook, el Dockerfile y el docker compose.
 on:
   pull_request:
+    paths-ignore: ['**.md']
   push:
     branches: [main]
   workflow_dispatch:
@@ -12,27 +13,36 @@ concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  plan:
+    name: que stacks probar
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          files=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then files=$(git diff --name-only "$BASE" HEAD); fi
+          matrix=$(python3 tools/e2e_plan.py "${{ github.event_name }}" $files)
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "$matrix" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')" >> "$GITHUB_OUTPUT"
   project:
     name: e2e (${{ matrix.stack }})
+    needs: plan
+    if: needs.plan.outputs.count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        # una entrada por cada stack con carpeta en starter_apps/ (una prueba lo comprueba)
-        include:
-          - { stack: fastapi, port: 8000, db: true }
-          - { stack: django, port: 8000, db: true }
-          - { stack: express, port: 3000, db: true }
-          - { stack: dotnet, port: 8080, db: true }
-          - { stack: springboot, port: 8080, db: true }
-          - { stack: go, port: 8080 }
-          - { stack: nextjs, port: 3000 }
-          - { stack: react, port: 8080 }
-          - { stack: angular, port: 8080 }
-          - { stack: laravel, port: 8000 }
-          - { stack: rails, port: 3000 }
-          - { stack: quarkus, port: 8080, db: true }
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
