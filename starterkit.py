@@ -393,7 +393,7 @@ def _java():
                                               "cache": "maven"}),
         install="./mvnw -B -q -DskipTests dependency:resolve",
         # SBOM CycloneDX (incluye dependencias transitivas) escaneado con OSV-Scanner; los runners traen Go.
-        audit=("./mvnw -B org.cyclonedx:cyclonedx-maven-plugin:makeBom -DoutputFormat=json\n"
+        audit=("./mvnw -B org.cyclonedx:cyclonedx-maven-plugin:makeBom -DoutputFormat=json -DskipNotDeployed=false\n"
                "go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest\n"
                '"$(go env GOPATH)/bin/osv-scanner" scan source --lockfile target/bom.json'),
         codeql="java-kotlin", eco=[("maven", "/")], port=8080, cport=8080,
