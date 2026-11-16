@@ -75,7 +75,7 @@ Cuando limpies cada uno: `--strict lint`, `--strict audit` o `--strict all`. `--
 
 ## Base de datos y despliegue
 
-- FastAPI, Django y Express con `--with-app --db postgres` traen repositorio con memoria o Postgres (según `DATABASE_URL`),
+- FastAPI, Django, Express y Spring Boot con `--with-app --db postgres` traen repositorio con memoria o Postgres (según `DATABASE_URL`),
   migraciones SQL con bloqueo y `GET/POST /items`; los tests corren contra ambos backends y el E2E crea y lee un ítem en compose.
 - `--cloud aws|azure|gcp` o `--deploy vercel|netlify` generan `.github/workflows/deploy.yml`: solo manual (`workflow_dispatch`),
   con `environment: production` (protégelo con revisores) y OIDC en las nubes. Configura secretos y variables antes de usarlo.
@@ -116,7 +116,7 @@ Cuando limpies cada uno: `--strict lint`, `--strict audit` o `--strict all`. `--
 - `--plugin` en un proyecto real: las claves `extraKnownMarketplaces` y `enabledPlugins` siguen el formato documentado, pero no probé una sesión con un marketplace de GitHub privado.
 - `claude-code-action` y `scripts/protect-main.sh` requieren tu secreto y permisos de admin.
 - Los comandos de test/lint/build de los demás stacks son los típicos; confirma que coinciden con tu proyecto.
-- El hook de Bash es heurístico, no un sandbox. La auditoría de Java usa OSV-Scanner (`go install ...@latest`); su primera ejecución real es el E2E.
+- El hook de Bash es heurístico, no un sandbox. La auditoría de Java genera un SBOM con CycloneDX y lo escanea con OSV-Scanner (incluye dependencias transitivas; verificado en Actions con Spring Boot y Quarkus).
 - Rails: el kit no genera Dockerfile porque Rails 8 trae el suyo.
 
 ## Desarrollo
