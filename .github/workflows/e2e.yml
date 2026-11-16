@@ -64,10 +64,20 @@ jobs:
         run: |
           python3 starterkit.py --stack "${{ matrix.stack }}" --db postgres --cloud aws --with-app \
             --out "$RUNNER_TEMP/proj"
+      - name: Postgres para los tests (el equivalente al service del ci.yml)
+        if: matrix.db
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=app_test postgres:17
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 1; done
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app_test" >> "$GITHUB_ENV"
       - name: Ejecutar los pasos del ci.yml generado
         run: python3 tools/run_ci_locally.py "$RUNNER_TEMP/proj" --venv "$RUNNER_TEMP/venv"
       - name: Evals del hook del proyecto
         run: python3 "$RUNNER_TEMP/proj/evals/run_hook_evals.py"
+      - name: Liberar el puerto de la base antes de compose
+        if: matrix.db
+        run: docker rm -f pg
       - name: Lint del Dockerfile (hadolint)
         run: |
           docker run --rm -i hadolint/hadolint hadolint --failure-threshold error - < "$RUNNER_TEMP/proj/Dockerfile"
