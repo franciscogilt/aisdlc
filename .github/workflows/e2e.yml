@@ -25,7 +25,7 @@ jobs:
           - { stack: django, port: 8000, db: true }
           - { stack: express, port: 3000, db: true }
           - { stack: dotnet, port: 8080 }
-          - { stack: springboot, port: 8080 }
+          - { stack: springboot, port: 8080, db: true }
           - { stack: go, port: 8080 }
           - { stack: nextjs, port: 3000 }
           - { stack: react, port: 8080 }

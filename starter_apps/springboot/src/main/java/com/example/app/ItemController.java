@@ -1,6 +1,7 @@
 package com.example.app;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -13,12 +14,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class ItemController {
 
+    private final ItemRepo repo;
+
+    public ItemController(ItemRepo repo) {
+        this.repo = repo;
+    }
+
     public record ItemIn(String name, Integer quantity) {
     }
 
     @GetMapping("/health")
     public Map<String, String> health() {
         return Map.of("status", "ok");
+    }
+
+    @GetMapping("/items")
+    public List<Item> list() {
+        return repo.list();
     }
 
     @PostMapping("/items")
@@ -33,6 +45,6 @@ public class ItemController {
         if (!errors.isEmpty()) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("errors", errors));
         }
-        return ResponseEntity.status(HttpStatus.CREATED).body(item);
+        return ResponseEntity.status(HttpStatus.CREATED).body(repo.add(item.name(), item.quantity()));
     }
 }
