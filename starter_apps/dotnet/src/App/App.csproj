@@ -7,4 +7,9 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+
 </Project>

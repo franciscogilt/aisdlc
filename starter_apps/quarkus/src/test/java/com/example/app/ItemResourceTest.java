@@ -1,6 +1,7 @@
 package com.example.app;
 
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 
 import io.quarkus.test.junit.QuarkusTest;
@@ -19,6 +20,13 @@ class ItemResourceTest {
     void creaUnItem() {
         given().contentType(ContentType.JSON).body("{\"name\":\"cafe\",\"quantity\":2}")
                 .when().post("/items").then().statusCode(201).body("name", is("cafe"));
+    }
+
+    @Test
+    void creaYListaItems() {
+        given().contentType(ContentType.JSON).body("{\"name\":\"listado\",\"quantity\":3}")
+                .when().post("/items").then().statusCode(201);
+        given().when().get("/items").then().statusCode(200).body("name", hasItem("listado"));
     }
 
     @Test
