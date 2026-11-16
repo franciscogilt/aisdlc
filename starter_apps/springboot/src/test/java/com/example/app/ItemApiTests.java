@@ -45,6 +45,14 @@ class ItemApiTests {
     }
 
     @Test
+    void creaYListaItems() throws Exception {
+        assertEquals(201, post("{\"name\":\"listado\",\"quantity\":3}").statusCode());
+        HttpResponse<String> r = send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/items")));
+        assertEquals(200, r.statusCode());
+        assertTrue(r.body().contains("\"name\":\"listado\""));
+    }
+
+    @Test
     void rechazaCantidadInvalida() throws Exception {
         assertEquals(422, post("{\"name\":\"cafe\",\"quantity\":0}").statusCode());
     }
