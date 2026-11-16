@@ -116,7 +116,7 @@ Cuando limpies cada uno: `--strict lint`, `--strict audit` o `--strict all`. `--
 - `--plugin` en un proyecto real: las claves `extraKnownMarketplaces` y `enabledPlugins` siguen el formato documentado, pero no probé una sesión con un marketplace de GitHub privado.
 - `claude-code-action` y `scripts/protect-main.sh` requieren tu secreto y permisos de admin.
 - Los comandos de test/lint/build de los demás stacks son los típicos; confirma que coinciden con tu proyecto.
-- El hook de Bash es heurístico, no un sandbox. Las auditorías de dependencias no cubren Java.
+- El hook de Bash es heurístico, no un sandbox. La auditoría de Java usa OSV-Scanner (`go install ...@latest`); su primera ejecución real es el E2E.
 - Rails: el kit no genera Dockerfile porque Rails 8 trae el suyo.
 
 ## Desarrollo
