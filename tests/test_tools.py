@@ -341,5 +341,49 @@ class AdoptModeTests(unittest.TestCase):
             self.assertNotIn("continue-on-error", (pathlib.Path(tmp) / ".github/workflows/ci.yml").read_text())
 
 
+class DeployWorkflowTests(unittest.TestCase):
+    def test_every_target_generates_valid_yaml(self):
+        import yaml
+        combos = [(st, c, "none") for st in ("fastapi", "go") for c in ("aws", "azure", "gcp")]
+        combos += [("nextjs", "none", "vercel"), ("react", "none", "netlify")]
+        for stack, cloud, deploy in combos:
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(sk.main(["--stack", stack, "--cloud", cloud, "--deploy", deploy, "--out", tmp]), 0)
+                data = yaml.safe_load((pathlib.Path(tmp) / ".github/workflows/deploy.yml").read_text())
+                self.assertIn("workflow_dispatch", data[True])  # manual: nunca despliega solo
+                self.assertEqual(data["jobs"]["deploy"]["environment"], "production")
+
+    def test_no_deploy_workflow_without_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "fastapi", "--out", tmp]), 0)
+            self.assertFalse((pathlib.Path(tmp) / ".github/workflows/deploy.yml").exists())
+
+
+class EvalAndMetricsTests(unittest.TestCase):
+    def test_add_eval_appends_case_and_runs_evals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "go", "--out", tmp]), 0)
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            cases = pathlib.Path(tmp) / "evals/hook_cases.json"
+            before = len(json.loads(cases.read_text()))
+            r = subprocess.run([sys.executable, "scripts/add_eval.py", "borrado de raiz", "--tool", "Bash",
+                                "--command", "rm -rf /", "--expect", "block"],
+                               cwd=tmp, capture_output=True, text=True)
+            self.assertIn("Caso agregado", r.stdout)
+            self.assertEqual(len(json.loads(cases.read_text())), before + 1)
+            dup = subprocess.run([sys.executable, "scripts/add_eval.py", "borrado de raiz", "--tool", "Bash",
+                                  "--command", "x", "--expect", "block"], cwd=tmp, capture_output=True, text=True)
+            self.assertNotEqual(dup.returncode, 0)  # no permite nombres repetidos
+            self.assertEqual(len(json.loads(cases.read_text())), before + 1)
+
+    def test_metrics_github_flag_is_wired(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sk.main(["--stack", "go", "--out", tmp]), 0)
+            src = (pathlib.Path(tmp) / "scripts/metrics.py").read_text()
+            ast.parse(src)
+            self.assertIn("--github", src)
+            self.assertIn("lead_time_h_mediana", src)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -68,6 +68,24 @@ Al hacerlo adapta lo que detecta y lo avisa al terminar:
 
 Probado sobre dos repos reales (un Next.js con pnpm y un Django de 2022): el CI ya no falla por suposiciones del kit y, en cambio, marca lo que de verdad hay que arreglar (lint, vulnerabilidades, tests ausentes).
 
+### Adopción gradual
+
+En un repo con deuda, `--adopt` deja lint y auditoría de dependencias como avisos (`continue-on-error`) para que el CI no nazca en rojo.
+Cuando limpies cada uno: `--strict lint`, `--strict audit` o `--strict all`. `--update` conserva el modo.
+
+## Base de datos y despliegue
+
+- FastAPI, Django y Express con `--with-app --db postgres` traen repositorio con memoria o Postgres (según `DATABASE_URL`),
+  migraciones SQL con bloqueo y `GET/POST /items`; los tests corren contra ambos backends y el E2E crea y lee un ítem en compose.
+- `--cloud aws|azure|gcp` o `--deploy vercel|netlify` generan `.github/workflows/deploy.yml`: solo manual (`workflow_dispatch`),
+  con `environment: production` (protégelo con revisores) y OIDC en las nubes. Configura secretos y variables antes de usarlo.
+
+## Medir y aprender de fallos
+
+- `python3 scripts/metrics.py` mide ciclo, commits y desviaciones del plan por tarea; con `--github OWNER/REPO` añade lead time de PRs,
+  tasa de rechazo, CI en verde y comentarios de bot vs humanos (necesita `gh`).
+- `python3 scripts/add_eval.py "descripcion" --tool Bash --command "..." --expect block` convierte un fallo real del agente en un caso de eval y corre los evals.
+
 ## Cómo lo usa un equipo
 
 1. `intent.md` → `spec.md` → `plan.md` por tarea, en `intent/<ID>/`; cada artefacto se commitea.
@@ -79,7 +97,7 @@ Probado sobre dos repos reales (un Next.js con pnpm y un Django de 2022): el CI 
 ## Qué está verificado y qué no
 
 **Verificado en este entorno:**
-- 41 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
+- 47 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
   `--update`, `--with-app`, `--plugin`, métricas y la lógica de actualización de versiones (con datos de prueba).
 - Hook probado en **sesiones reales de Claude Code 2.1.325**: bloquea migraciones sin ticket, bloquea el bypass por Bash y pide aprobación para instalar paquetes.
 - Los workflows de los 12 stacks pasan `actionlint`; los 12 `docker-compose.yml` pasan `docker compose config`.
