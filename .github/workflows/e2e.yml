@@ -21,9 +21,9 @@ jobs:
       matrix:
         # una entrada por cada stack con carpeta en starter_apps/ (una prueba lo comprueba)
         include:
-          - { stack: fastapi, port: 8000 }
-          - { stack: django, port: 8000 }
-          - { stack: express, port: 3000 }
+          - { stack: fastapi, port: 8000, db: true }
+          - { stack: django, port: 8000, db: true }
+          - { stack: express, port: 3000, db: true }
           - { stack: dotnet, port: 8080 }
           - { stack: springboot, port: 8080 }
           - { stack: go, port: 8080 }
@@ -64,10 +64,20 @@ jobs:
         run: |
           python3 starterkit.py --stack "${{ matrix.stack }}" --db postgres --cloud aws --with-app \
             --out "$RUNNER_TEMP/proj"
+      - name: Postgres para los tests (el equivalente al service del ci.yml)
+        if: matrix.db
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=app_test postgres:17
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 1; done
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app_test" >> "$GITHUB_ENV"
       - name: Ejecutar los pasos del ci.yml generado
         run: python3 tools/run_ci_locally.py "$RUNNER_TEMP/proj" --venv "$RUNNER_TEMP/venv"
       - name: Evals del hook del proyecto
         run: python3 "$RUNNER_TEMP/proj/evals/run_hook_evals.py"
+      - name: Liberar el puerto de la base antes de compose
+        if: matrix.db
+        run: docker rm -f pg
       - name: Lint del Dockerfile (hadolint)
         run: |
           docker run --rm -i hadolint/hadolint hadolint --failure-threshold error - < "$RUNNER_TEMP/proj/Dockerfile"
@@ -83,6 +93,12 @@ jobs:
             if curl -fsS "http://localhost:${{ matrix.port }}/health"; then ok=1; break; fi
             sleep 1
           done
+          if [ "$ok" = 1 ] && [ "${{ matrix.db }}" = "true" ]; then
+            # La app guarda en Postgres: crear un item y leerlo prueba migraciones + conexion de punta a punta.
+            curl -fsS -X POST "http://localhost:${{ matrix.port }}/items" -H 'content-type: application/json' \
+              -d '{"name":"e2e","quantity":1}' || ok=0
+            curl -fsS "http://localhost:${{ matrix.port }}/items" | tee /dev/stderr | grep -q '"e2e"' || ok=0
+          fi
           docker compose logs --no-color | tail -30
           echo '--- primeras lineas de la app (sin /health) ---'
           docker compose logs --no-color app | grep -v '"GET /health' | head -40 | cut -c1-400

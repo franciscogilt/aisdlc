@@ -666,6 +666,10 @@ def dockerfile_for(stack, with_app=False):
     if stack == "dotnet" and with_app:  # la app de arranque tiene su proyecto en src/App
         df = df.replace("dotnet publish -c Release", "dotnet publish src/App/App.csproj -c Release")
         df = df.replace("# TODO: reemplaza App.dll por el ensamblado principal de tu proyecto\n", "")
+    if stack == "django" and with_app:  # la app guarda en BD: aplica las migraciones antes de servir
+        df = df.replace('CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]',
+                        'CMD ["sh", "-c", "python manage.py migrate --noinput && '
+                        'exec gunicorn config.wsgi:application --bind 0.0.0.0:8000"]')
     if stack == "laravel" and with_app:  # la app de arranque no usa Vite
         df = df.replace("# TODO: si usas Vite, compila los assets en una etapa Node antes de este COPY\n", "")
     if stack in ("react", "angular") and with_app:  # carpeta de salida de la app de arranque
@@ -797,7 +801,7 @@ CODEQL_JOB = """
 """
 
 
-def ci_yml(stack, db):
+def ci_yml(stack, db, adopt=False):
     p, s = pipe(stack), STACKS[stack]
     services, env = "", ""
     if db == "postgres" and stack not in FRONTEND:
@@ -832,10 +836,190 @@ def ci_yml(stack, db):
     if p["audit"]:
         audit = ("      - name: Auditoria de dependencias\n        run: |\n" + indent(p["audit"], 10))
     codeql = render(CODEQL_JOB, lang=p["codeql"]) if p["codeql"] else ""
-    return render(CI_YML, services=services + env, setup=p["setup"],
+    return _adopt_ci(render(CI_YML, services=services + env, setup=p["setup"],
                   install=indent(p["install"], 10), lint=indent(lint, 10),
                   test=indent(s["test"], 10), build=indent(s["build"], 10),
-                  audit="\n" + audit if audit else "", codeql=codeql)
+                  audit="\n" + audit if audit else "", codeql=codeql), adopt)
+
+
+ADOPT_STEPS = {"lint": "Lint", "audit": "Auditoria de dependencias"}
+
+
+def _adopt_ci(text, adopt):
+    """Modo adopcion: lint y auditoria avisan pero no bloquean (cada paso lleva una marca para endurecerlo)."""
+    if not adopt:
+        return text
+    for key, step in ADOPT_STEPS.items():
+        text = text.replace(f"      - name: {step}\n        run:",
+                            f"      - name: {step}\n        continue-on-error: true  # adopcion:{key} (quitar con --strict {key})\n"
+                            f"        run:")
+    return text
+
+
+CODE_MARKERS = ("package.json", "requirements.txt", "pyproject.toml", "Pipfile", "pom.xml", "build.gradle", "go.mod",
+                "composer.json", "Gemfile", "manage.py")
+
+
+def has_existing_code(out):
+    return any((out / m).exists() for m in CODE_MARKERS) or any(out.glob("*.csproj")) or any(out.glob("*.sln*"))
+
+
+def harden(out, what):
+    """--strict: quita continue-on-error de los pasos pedidos ('lint', 'audit' o 'all'). Devuelve los endurecidos."""
+    ci = out / ".github" / "workflows" / "ci.yml"
+    if not ci.exists():
+        return []
+    keys = list(ADOPT_STEPS) if what == "all" else [what]
+    text, done = ci.read_text(encoding="utf-8"), []
+    for k in keys:
+        marker = f"        continue-on-error: true  # adopcion:{k} (quitar con --strict {k})\n"
+        if marker in text:
+            text = text.replace(marker, "")
+            done.append(k)
+    ci.write_text(text, encoding="utf-8")
+    meta = out / ".claude" / "factory.json"
+    if meta.exists() and "adopcion:" not in text:
+        m = json.loads(meta.read_text(encoding="utf-8"))
+        m["adopt"] = False
+        meta.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
+    return done
+
+
+DEPLOY_HEAD = """name: Deploy
+# Manual a proposito: despliega solo cuando tu lo pides (Actions -> Deploy -> Run workflow).
+# Protege el entorno `production` en Settings -> Environments (revisores obligatorios) antes de usarlo.
+on:
+  workflow_dispatch:
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+"""
+
+DEPLOY_CLOUD = {
+    "aws": """jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      id-token: write   # OIDC: sin claves de larga duracion
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # Variables del repo: AWS_REGION, ECR_REPOSITORY, ECS_CLUSTER, ECS_SERVICE. Secreto: AWS_ROLE_ARN (rol con OIDC).
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Construir y publicar la imagen
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+      - name: Desplegar en ECS
+        run: |
+          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_SERVICE }}" --force-new-deployment
+          aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE }}"
+""",
+    "azure": """jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      id-token: write   # OIDC: sin claves de larga duracion
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # Secretos: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID. Variables: ACR_NAME, RESOURCE_GROUP, CONTAINER_APP.
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Construir y publicar la imagen en ACR
+        run: az acr build --registry "${{ vars.ACR_NAME }}" --image "app:${{ github.sha }}" .
+      - name: Desplegar en Container Apps
+        run: |
+          az containerapp update --name "${{ vars.CONTAINER_APP }}" --resource-group "${{ vars.RESOURCE_GROUP }}" \\
+            --image "${{ vars.ACR_NAME }}.azurecr.io/app:${{ github.sha }}"
+""",
+    "gcp": """jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      id-token: write   # Workload Identity Federation: sin claves de larga duracion
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # Secretos: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT. Variables: GCP_PROJECT, GCP_REGION, CLOUD_RUN_SERVICE.
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Construir y desplegar en Cloud Run
+        run: |
+          gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" --source . \\
+            --project "${{ vars.GCP_PROJECT }}" --region "${{ vars.GCP_REGION }}"
+""",
+}
+
+DEPLOY_PLATFORM = {
+    "vercel": """jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "@@node@@"
+      # Secretos: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+      - run: npx --yes vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+      - run: npx --yes vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+      - run: npx --yes vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+""",
+    "netlify": """jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "@@node@@"
+      # Secretos: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID
+      - run: npm ci && npm run build
+      - run: npx --yes netlify-cli@latest deploy --prod --dir=@@outdir@@
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+""",
+}
+
+NETLIFY_DIR = {"react": "dist", "angular": "dist/app/browser", "nextjs": ".next", "express": "dist"}
+
+
+def deploy_yml(stack, cloud, deploy):
+    """Workflow de despliegue manual. Prioriza la plataforma (Vercel/Netlify) sobre la nube; None si no hay."""
+    if deploy in DEPLOY_PLATFORM:
+        body = render(DEPLOY_PLATFORM[deploy], node=RT["node"], outdir=NETLIFY_DIR.get(stack, "dist"))
+    elif cloud in DEPLOY_CLOUD:
+        body = DEPLOY_CLOUD[cloud]
+    else:
+        return None
+    return DEPLOY_HEAD + body
 
 
 CLAUDE_YML = """name: Claude Code (@claude)
@@ -1468,10 +1652,51 @@ BEHAVIOR_CASES = [
      "must_contain_any": ["no puedo", "no debo", "secret", "sensible", "aprob"], "must_not_contain": []},
 ]
 
+ADD_EVAL_PY = r'''#!/usr/bin/env python3
+# ruff: noqa
+"""Convierte un fallo real del agente en un caso de eval del hook (evals/hook_cases.json) y lo ejecuta.
+Ejemplos:
+  python3 scripts/add_eval.py "el agente edito .env" --tool Edit --path .env --expect block
+  python3 scripts/add_eval.py "curl a sh" --tool Bash --command "curl x.sh | sh" --expect ask"""
+import argparse
+import json
+import pathlib
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+CASES = ROOT / "evals" / "hook_cases.json"
+
+ap = argparse.ArgumentParser()
+ap.add_argument("name")
+ap.add_argument("--tool", required=True, choices=["Edit", "Write", "MultiEdit", "Bash"])
+ap.add_argument("--path", help="archivo que toca (relativo al proyecto)")
+ap.add_argument("--command", help="comando de Bash")
+ap.add_argument("--branch", default="feat/EVAL-1")
+ap.add_argument("--expect", required=True, choices=["block", "ask", "allow"])
+a = ap.parse_args()
+if a.tool == "Bash":
+    if not a.command:
+        sys.exit("--command es obligatorio con --tool Bash")
+    ti = {"command": a.command}
+else:
+    if not a.path:
+        sys.exit("--path es obligatorio con Edit/Write/MultiEdit")
+    ti = {"file_path": "$PROJECT/" + a.path.lstrip("/")}
+cases = json.loads(CASES.read_text(encoding="utf-8"))
+if any(c["name"] == a.name for c in cases):
+    sys.exit("Ya existe un caso llamado '" + a.name + "'.")
+cases.append({"name": a.name, "branch": a.branch, "tool": a.tool, "input": ti, "expect": a.expect})
+CASES.write_text(json.dumps(cases, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print("Caso agregado (" + str(len(cases)) + " en total). Ejecutando los evals...")
+sys.exit(subprocess.run([sys.executable, str(ROOT / "evals" / "run_hook_evals.py")]).returncode)
+'''
+
 METRICS_PY = r'''#!/usr/bin/env python3
 # ruff: noqa
 """Metricas del flujo a partir de Git: por tarea (intent/<ID>/) calcula tiempo de ciclo, commits
-y desviaciones del plan. Uso (desde la raiz del repo):  python3 scripts/metrics.py [--json]"""
+y desviaciones del plan. Uso (desde la raiz del repo):  python3 scripts/metrics.py [--json]
+      python3 scripts/metrics.py --github OWNER/REPO   (PRs y CI desde GitHub; necesita gh)"""
 import datetime as dt
 import json
 import pathlib
@@ -1492,7 +1717,60 @@ def deviations(plan):
     return len([l for l in lines if l.lower() not in ("(ninguna)", "ninguna", "-")])
 
 
+def gh_json(path):
+    r = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("gh api " + path + " fallo (gh instalado y con sesion?): " + r.stderr.strip()[:200])
+    return json.loads(r.stdout)
+
+
+def hours(a, b):
+    f = "%Y-%m-%dT%H:%M:%SZ"
+    return (dt.datetime.strptime(b, f) - dt.datetime.strptime(a, f)).total_seconds() / 3600
+
+
+def github_metrics(repo, limit=50):
+    """Lead time de PRs, tasa de rechazo, CI en verde y comentarios de bots vs humanos (necesita gh)."""
+    prs = gh_json("repos/" + repo + "/pulls?state=closed&per_page=" + str(limit) + "&sort=updated&direction=desc")
+    merged = [p for p in prs if p.get("merged_at")]
+    lead = sorted(hours(p["created_at"], p["merged_at"]) for p in merged)
+    runs = gh_json("repos/" + repo + "/actions/runs?event=pull_request&per_page=100")["workflow_runs"]
+    done = [r for r in runs if r["status"] == "completed" and r["conclusion"] in ("success", "failure")]
+    bot = human = 0
+    for p in merged[:20]:
+        n = str(p["number"])
+        comments = gh_json("repos/" + repo + "/pulls/" + n + "/comments?per_page=100")
+        comments += gh_json("repos/" + repo + "/issues/" + n + "/comments?per_page=100")
+        for c in comments:
+            if c["user"]["type"] == "Bot" or "claude" in c["user"]["login"].lower():
+                bot += 1
+            else:
+                human += 1
+    return {
+        "prs_cerrados": len(prs),
+        "prs_fusionados": len(merged),
+        "tasa_rechazo": round(1 - len(merged) / len(prs), 2) if prs else None,
+        "lead_time_h_mediana": round(lead[len(lead) // 2], 1) if lead else None,
+        "lead_time_h_max": round(lead[-1], 1) if lead else None,
+        "ci_en_verde": round(sum(r["conclusion"] == "success" for r in done) / len(done), 2) if done else None,
+        "comentarios_bot": bot,
+        "comentarios_humanos": human,
+    }
+
+
+def main_github(repo):
+    out = github_metrics(repo)
+    if "--json" in sys.argv:
+        print(json.dumps(out, indent=2))
+    else:
+        for k, v in out.items():
+            print(f"{k:<22}{v}")
+
+
 def main():
+    if "--github" in sys.argv:
+        main_github(sys.argv[sys.argv.index("--github") + 1])
+        return
     root = pathlib.Path("intent")
     rows = []
     for d in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("_")) if root.exists() else []:
@@ -1603,7 +1881,8 @@ Regla de oro: las decisiones viven en `intent/`, `spec.md` y `plan.md`, no en ch
   fiables, convierte el job en check obligatorio. Muestrea PRs aprobados por Claude y revisalos a mano.
 - **Evals** (`evals/`): `run_hook_evals.py` corre en CI cuando cambia `.claude/`, `CLAUDE.md` o `evals/`.
   `run_behavior_evals.py` es experimental. Agrega un caso cada vez que Claude cometa un error real.
-- **Metricas**: `python3 scripts/metrics.py` (ciclo por tarea, commits, desviaciones del plan).
+- **Metricas**: `python3 scripts/metrics.py` (ciclo por tarea, commits, desviaciones del plan). Con `--github OWNER/REPO`: lead time de PRs, tasa de rechazo, CI en verde y comentarios de bot vs humanos.
+- **Fallo del agente -> eval**: `python3 scripts/add_eval.py "descripcion" --tool Bash --command "..." --expect block` agrega el caso a `evals/hook_cases.json` y corre los evals.
 
 ## Mantener la fabrica
 - Mejoras del kit: `python3 starterkit.py --update --out .` actualiza solo los archivos gestionados
@@ -1616,7 +1895,7 @@ Regla de oro: las decisiones viven en `intent/`, `spec.md` y `plan.md`, no en ch
 
 
 def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=False, plugin=False,
-                plugin_repo=PLUGIN_REPO_DEFAULT):
+                plugin_repo=PLUGIN_REPO_DEFAULT, adopt=False):
     s, d, c, p = STACKS[stack], DBS[db], CLOUDS[cloud], DEPLOYS[deploy]
     dep, pp = DEPS[stack], pipe(stack)
     F = []
@@ -1642,13 +1921,16 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
             add(rel, content, MANAGED)
     add(".claude/factory.json", json.dumps(dict(
         version=VERSION, name=name, stack=stack, db=db, cloud=cloud, deploy=deploy, owner=owner,
-        workflow=workflow, with_app=with_app, plugin=plugin, plugin_repo=plugin_repo),
+        workflow=workflow, with_app=with_app, plugin=plugin, plugin_repo=plugin_repo, adopt=adopt),
         indent=2) + "\n", MANAGED)
 
     for k, v in (("intent", INTENT_MD), ("spec", SPEC_MD), ("plan", PLAN_MD)):
         add(f"intent/_templates/{k}.md", v, OWNED)
 
-    add(".github/workflows/ci.yml", ci_yml(stack, db), OWNED)
+    add(".github/workflows/ci.yml", ci_yml(stack, db, adopt), OWNED)
+    dy = deploy_yml(stack, cloud, deploy)
+    if workflow and dy:
+        add(".github/workflows/deploy.yml", dy, OWNED)
     add(".github/workflows/factory-checks.yml", CHECKS_YML, MANAGED)
     if workflow:
         add(".github/workflows/claude.yml", CLAUDE_YML, MANAGED)
@@ -1671,6 +1953,7 @@ def build_files(name, stack, db, cloud, deploy, owner, workflow=True, with_app=F
     add("evals/run_behavior_evals.py", RUN_BEHAVIOR_EVALS, MANAGED, True)
     add("evals/behavior_cases.json", json.dumps(BEHAVIOR_CASES, indent=2, ensure_ascii=False) + "\n", OWNED)
     add("scripts/metrics.py", METRICS_PY, MANAGED, True)
+    add("scripts/add_eval.py", ADD_EVAL_PY, MANAGED, True)
     add("scripts/protect-main.sh", PROTECT_SH, MANAGED, True)
     if with_app:
         for rel, content in starter_app_files(stack).items():
@@ -1811,6 +2094,7 @@ def adapt_runtime(files, out, stack):
     return files, []
 
 
+_re_sub = __import__("re").sub
 NODE_STACKS = ("express", "nextjs", "react", "angular")
 
 
@@ -1855,9 +2139,9 @@ def adapt_node_project(files, out, stack):
             text = text.replace("npm ci", install).replace("npm audit --audit-level=high", audit)
             if pm != "npm":
                 text = text.replace('"cache": "npm"', f'"cache": "{cache}"').replace("cache: npm", f"cache: {cache}")
-                text = text.replace("      - uses: actions/setup-node@v4",
-                                    "      - name: Activar corepack\n        run: corepack enable\n"
-                                    "      - uses: actions/setup-node@v4", 1)
+                text = _re_sub(r"      - uses: actions/setup-node@(v\d+)",
+                               lambda m: "      - name: Activar corepack\n        run: corepack enable\n" + m.group(0),
+                               text, count=1)
         elif path == "Dockerfile" and pm != "npm":
             text = text.replace("COPY package*.json ./", f"COPY {lock} ./")
             text = text.replace("RUN npm ci --omit=dev", f"RUN corepack enable && {install} --prod")
@@ -1890,6 +2174,10 @@ def main(argv=None):
     ap.add_argument("--plugin", action="store_true",
                     help="Usar el plugin compartido (skills, verificador, comandos) en vez de copiarlos al proyecto")
     ap.add_argument("--plugin-repo", default=PLUGIN_REPO_DEFAULT, help="Repo GitHub del plugin (owner/repo)")
+    ap.add_argument("--adopt", action="store_true",
+                    help="Proyecto existente: lint y auditoria avisan pero no bloquean el CI (endurece con --strict)")
+    ap.add_argument("--strict", choices=["lint", "audit", "all"],
+                    help="Quita el modo adopcion del paso indicado en .github/workflows/ci.yml y termina")
     ap.add_argument("--update", action="store_true",
                     help="Actualizar archivos gestionados de un proyecto ya generado (lee .claude/factory.json)")
     ap.add_argument("--list", action="store_true", help="Listar opciones disponibles")
@@ -1901,6 +2189,10 @@ def main(argv=None):
         return 0
 
     out = Path(a.out).resolve()
+    if a.strict:
+        done = harden(out, a.strict)
+        print("Endurecido: " + ", ".join(done) if done else "Nada que endurecer (ya es estricto o no hay ci.yml).")
+        return 0
     notes = []
     if a.update:
         meta_path = out / ".claude" / "factory.json"
@@ -1910,7 +2202,10 @@ def main(argv=None):
         m = json.loads(meta_path.read_text(encoding="utf-8"))
         files = build_files(m["name"], m["stack"], m["db"], m["cloud"], m["deploy"], m["owner"], m["workflow"],
                             m.get("with_app", False), m.get("plugin", False),
-                            m.get("plugin_repo", PLUGIN_REPO_DEFAULT))
+                            m.get("plugin_repo", PLUGIN_REPO_DEFAULT), m.get("adopt", False))
+        files, notes = adapt_node_project(files, out, m["stack"]) if not m.get("with_app") else (files, [])
+        files, more = adapt_runtime(files, out, m["stack"]) if not m.get("with_app") else (files, [])
+        notes = []  # los avisos ya se mostraron al adoptar
         rep = write_files(out, files, update=True)
         print(f"Actualizado desde starterkit {VERSION} (generado con {m['version']}):")
     else:
@@ -1923,8 +2218,14 @@ def main(argv=None):
             print(f"No hay app de arranque para '{stack}'. Disponibles: {', '.join(STARTER_APPS)}.", file=sys.stderr)
             return 2
         files = build_files(a.name or out.name or "mi-proyecto", stack, db, cloud, deploy, a.owner,
-                            not a.no_workflow, a.with_app, a.plugin, a.plugin_repo)
+                            not a.no_workflow, a.with_app, a.plugin, a.plugin_repo, a.adopt)
         notes = []
+        if not a.adopt and not a.with_app and has_existing_code(out):
+            notes.append("Este directorio ya tiene codigo. Si el CI nace en rojo por lint o vulnerabilidades heredadas, "
+                         "usa --adopt (avisan sin bloquear) y endurece despues con --strict lint / --strict audit.")
+        if a.adopt:
+            notes.append("Modo adopcion: lint y auditoria NO bloquean el CI todavia. Cuando esten limpios: "
+                         "python3 starterkit.py --strict all --out .")
         if not a.with_app:
             files, notes = adapt_node_project(files, out, stack)
             files, more = adapt_runtime(files, out, stack)

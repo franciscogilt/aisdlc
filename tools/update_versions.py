@@ -37,6 +37,8 @@ ACTIONS = [
     "actions/checkout", "actions/setup-python", "actions/setup-node", "actions/setup-java",
     "actions/setup-dotnet", "actions/setup-go", "ruby/setup-ruby", "shivammathur/setup-php",
     "github/codeql-action", "anthropics/claude-code-action",
+    "aws-actions/configure-aws-credentials", "aws-actions/amazon-ecr-login", "azure/login",
+    "google-github-actions/auth", "google-github-actions/setup-gcloud",
 ]
 
 
