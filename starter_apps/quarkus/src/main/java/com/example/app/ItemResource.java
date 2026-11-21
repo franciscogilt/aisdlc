@@ -1,6 +1,7 @@
 package com.example.app;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import jakarta.ws.rs.Consumes;
@@ -24,6 +25,12 @@ public class ItemResource {
         return Map.of("status", "ok");
     }
 
+    @GET
+    @Path("/items")
+    public List<Item> list() {
+        return Repos.get().list();
+    }
+
     @POST
     @Path("/items")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -38,6 +45,6 @@ public class ItemResource {
         if (!errors.isEmpty()) {
             return Response.status(422).entity(Map.of("errors", errors)).build();
         }
-        return Response.status(Response.Status.CREATED).entity(item).build();
+        return Response.status(Response.Status.CREATED).entity(Repos.get().add(item.name(), item.quantity())).build();
     }
 }

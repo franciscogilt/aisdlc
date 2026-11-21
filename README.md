@@ -55,7 +55,7 @@ funciona aunque el plugin no esté instalado y se puede probar en el CI del proy
 - `tools/update_versions.py` consulta endoflife.date (runtimes: último ciclo no-EOL con ≥ 60 días; LTS en Node/Java/.NET),
   los releases de las GitHub Actions y PyPI (dependencias de las apps de arranque). El workflow
   `update-versions.yml` lo ejecuta cada semana y abre un PR.
-- `E2E` (workflow): por cada app de arranque genera un proyecto, ejecuta los pasos del `ci.yml` generado,
+- `E2E` (workflow): solo prueba los stacks afectados en un PR (`tools/e2e_plan.py`); en `main`, manual o si cambia el generador, corre los 12. Por cada app de arranque genera un proyecto, ejecuta los pasos del `ci.yml` generado,
   los evals del hook, lint del Dockerfile (hadolint), `docker build` y `docker compose up` con prueba de `/health`.
 - `tools/run_ci_locally.py PROYECTO --venv DIR` ejecuta en tu máquina los comandos del `ci.yml` generado.
 
@@ -97,7 +97,7 @@ Cuando limpies cada uno: `--strict lint`, `--strict audit` o `--strict all`. `--
 ## Qué está verificado y qué no
 
 **Verificado en este entorno:**
-- 47 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
+- 51 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
   `--update`, `--with-app`, `--plugin`, métricas y la lógica de actualización de versiones (con datos de prueba).
 - Hook probado en **sesiones reales de Claude Code 2.1.325**: bloquea migraciones sin ticket, bloquea el bypass por Bash y pide aprobación para instalar paquetes.
 - Los workflows de los 12 stacks pasan `actionlint`; los 12 `docker-compose.yml` pasan `docker compose config`.

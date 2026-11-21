@@ -31,6 +31,16 @@ public class ApiTests(WebApplicationFactory<Program> factory) : IClassFixture<We
     }
 
     [Fact]
+    public async Task CreaYListaItems()
+    {
+        await client.PostAsJsonAsync("/items", new { name = "listado", quantity = 3 });
+
+        var body = await client.GetFromJsonAsync<JsonElement>("/items");
+
+        Assert.Contains(body.EnumerateArray(), i => i.GetProperty("name").GetString() == "listado");
+    }
+
+    [Fact]
     public async Task RechazaCantidadInvalida()
     {
         var response = await client.PostAsJsonAsync("/items", new { name = "cafe", quantity = 0 });

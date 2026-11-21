@@ -29,6 +29,16 @@ def cyc(cycle, released, eol=False, lts=False):
     return {"cycle": cycle, "releaseDate": released, "eol": eol, "lts": lts}
 
 
+def _load(name, rel):
+    spec = importlib.util.spec_from_file_location(name, ROOT / rel)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+e2e_plan = _load("e2e_plan", "tools/e2e_plan.py")
+
+
 class PickCycleTests(unittest.TestCase):
     def test_skips_eol_and_too_recent(self):
         cycles = [cyc("3.15", "2026-10-01"),            # muy reciente (< 60 dias)
@@ -176,8 +186,8 @@ class StarterAppTests(unittest.TestCase):
 
     def test_every_starter_app_is_registered_and_in_e2e(self):
         import yaml
-        e2e = yaml.safe_load((ROOT / ".github/workflows/e2e.yml").read_text())
-        matrix = {m["stack"] for m in e2e["jobs"]["project"]["strategy"]["matrix"]["include"]}
+        yaml.safe_load((ROOT / ".github/workflows/e2e.yml").read_text())  # el workflow sigue siendo YAML valido
+        matrix = {m["stack"] for m in e2e_plan.STACKS}
         dirs = {p.name for p in (ROOT / "starter_apps").iterdir() if p.is_dir()}
         self.assertEqual(set(sk.STARTER_APPS), dirs)
         self.assertEqual(set(sk.STARTER_APPS), matrix)
@@ -383,6 +393,27 @@ class EvalAndMetricsTests(unittest.TestCase):
             ast.parse(src)
             self.assertIn("--github", src)
             self.assertIn("lead_time_h_mediana", src)
+
+
+class E2EPlanTests(unittest.TestCase):
+    def names(self, event, files):
+        return [s["stack"] for s in e2e_plan.plan(event, files)]
+
+    def test_main_and_manual_run_everything(self):
+        for event in ("push", "workflow_dispatch", "schedule"):
+            self.assertEqual(len(self.names(event, [])), len(sk.STARTER_APPS))
+
+    def test_shared_changes_run_everything(self):
+        for f in ("starterkit.py", "tools/run_ci_locally.py", ".github/workflows/e2e.yml"):
+            self.assertEqual(len(self.names("pull_request", [f])), len(sk.STARTER_APPS), f)
+
+    def test_one_app_runs_only_that_stack(self):
+        self.assertEqual(self.names("pull_request", ["starter_apps/go/server.go", "README.md"]), ["go"])
+        self.assertEqual(sorted(self.names("pull_request", ["starter_apps/go/a.go", "starter_apps/rails/Gemfile"])),
+                         ["go", "rails"])
+
+    def test_docs_and_tests_only_run_nothing(self):
+        self.assertEqual(self.names("pull_request", ["README.md", "tests/test_tools.py"]), [])
 
 
 if __name__ == "__main__":
