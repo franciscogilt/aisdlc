@@ -332,8 +332,8 @@ SECRET_PATTERNS = [".env"]
 # Actions y las imagenes Docker al dia una vez generado el proyecto.
 # ----------------------------------------------------------------------------
 VERSION = "1.0.0"
-RT = dict(python="3.13", node="24", java="25", dotnet="10.0", go="1.27",
-          ruby="3.4", php="8.4", postgres="17")
+RT = dict(python="3.14", node="26", java="25", dotnet="10.0", go="1.27",
+          ruby="4.0", php="8.5", postgres="18")
 OWNER_DEFAULT = "@TU-ORG/plataforma"
 PLUGIN_NAME = "aisdlc"
 PLUGIN_AUTHOR = "franciscogilt"
@@ -365,7 +365,7 @@ def _step(uses, w=None):
 # ----------------------------------------------------------------------------
 def _py():
     return dict(
-        setup=_step("actions/setup-python@v5", {"python-version": f'"{RT["python"]}"', "cache": "pip"}),
+        setup=_step("actions/setup-python@v7", {"python-version": f'"{RT["python"]}"', "cache": "pip"}),
         install=("pip install -r requirements.txt\n"
                  "if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi\n"
                  "pip install ruff pytest"),
@@ -379,7 +379,7 @@ def _py():
 
 def _node(port=3000, cport=None):
     return dict(
-        setup=_step("actions/setup-node@v4", {"node-version": f'"{RT["node"]}"', "cache": "npm"}),
+        setup=_step("actions/setup-node@v7", {"node-version": f'"{RT["node"]}"', "cache": "npm"}),
         install="npm ci", audit="npm audit --audit-level=high",
         codeql="javascript-typescript", eco=[("npm", "/")], port=port, cport=cport or port,
         installs=[r"\b(npm|pnpm)\s+(i|install|add)\s+\S", r"\byarn\s+add\b", r"\bbun\s+add\b"],
@@ -389,7 +389,7 @@ def _node(port=3000, cport=None):
 
 def _java():
     return dict(
-        setup=_step("actions/setup-java@v4", {"distribution": "temurin", "java-version": f'"{RT["java"]}"',
+        setup=_step("actions/setup-java@v6", {"distribution": "temurin", "java-version": f'"{RT["java"]}"',
                                               "cache": "maven"}),
         install="./mvnw -B -q -DskipTests dependency:resolve",
         # SBOM CycloneDX (incluye dependencias transitivas) escaneado con OSV-Scanner; los runners traen Go.
@@ -403,7 +403,7 @@ def _java():
 
 def _dotnet():
     return dict(
-        setup=_step("actions/setup-dotnet@v4", {"dotnet-version": f'"{RT["dotnet"]}.x"'}),
+        setup=_step("actions/setup-dotnet@v6", {"dotnet-version": f'"{RT["dotnet"]}.x"'}),
         install="dotnet restore",
         audit=("dotnet list package --vulnerable --include-transitive 2>&1 | tee audit.txt\n"
                'if grep -q "has the following vulnerable packages" audit.txt; then exit 1; fi'),
@@ -414,7 +414,7 @@ def _dotnet():
 
 def _go():
     return dict(
-        setup=_step("actions/setup-go@v5", {"go-version-file": "go.mod"}),
+        setup=_step("actions/setup-go@v7", {"go-version-file": "go.mod"}),
         install="go mod download",
         audit="go install golang.org/x/vuln/cmd/govulncheck@latest\ngovulncheck ./...",
         codeql="go", eco=[("gomod", "/")], port=8080, cport=8080,
@@ -769,7 +769,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 @@services@@    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 @@setup@@      - name: Install
         run: |
 @@install@@      - name: Lint
@@ -784,7 +784,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Gitleaks (secretos en el historial)
@@ -803,12 +803,12 @@ CODEQL_JOB = """
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
         with:
           languages: @@lang@@
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4
 """
 
 
@@ -916,9 +916,9 @@ DEPLOY_CLOUD = {
       id-token: write   # OIDC: sin claves de larga duracion
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Variables del repo: AWS_REGION, ECR_REPOSITORY, ECS_CLUSTER, ECS_SERVICE. Secreto: AWS_ROLE_ARN (rol con OIDC).
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -944,9 +944,9 @@ DEPLOY_CLOUD = {
       id-token: write   # OIDC: sin claves de larga duracion
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Secretos: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID. Variables: ACR_NAME, RESOURCE_GROUP, CONTAINER_APP.
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -967,13 +967,13 @@ DEPLOY_CLOUD = {
       id-token: write   # Workload Identity Federation: sin claves de larga duracion
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Secretos: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT. Variables: GCP_PROJECT, GCP_REGION, CLOUD_RUN_SERVICE.
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
       - name: Construir y desplegar en Cloud Run
         run: |
           gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" --source . \\
@@ -991,8 +991,8 @@ DEPLOY_PLATFORM = {
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "@@node@@"
       # Secretos: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
@@ -1006,8 +1006,8 @@ DEPLOY_PLATFORM = {
     timeout-minutes: 20
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "@@node@@"
       # Secretos: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID
@@ -1051,7 +1051,7 @@ jobs:
       id-token: write
       actions: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@v1
@@ -1075,7 +1075,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@v1
@@ -1107,7 +1107,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 evals/run_hook_evals.py
 """
 
