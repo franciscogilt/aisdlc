@@ -1112,15 +1112,37 @@ jobs:
 """
 
 
+ANGULAR_DEPENDABOT = (
+    "      angular:  # todo @angular/* sube a la vez: sus peerDependencies exigen la misma version\n"
+    '        patterns: ["@angular/*", "@angular-devkit/*", "@angular-eslint/*", "@schematics/angular"]\n'
+)
+ANGULAR_IGNORE = (
+    "    ignore:  # Angular fija el rango de TypeScript; el salto mayor llega con la siguiente version de Angular\n"
+    '      - dependency-name: "typescript"\n'
+    '        update-types: ["version-update:semver-major"]\n'
+)
+
+
+def dependabot_entry(eco, directory, angular=False):
+    """Una entrada de Dependabot: menores y parches en un solo PR semanal; las mayores, una por una."""
+    key = "directories" if isinstance(directory, list) else "directory"
+    where = ("".join(f'\n      - "{d}"' for d in directory) if isinstance(directory, list) else f' "{directory}"')
+    out = (f'  - package-ecosystem: "{eco}"\n    {key}:{where}\n    schedule:\n'
+           '      interval: "weekly"\n    open-pull-requests-limit: 5\n    groups:\n')
+    if angular:
+        out += ANGULAR_DEPENDABOT
+    out += '      menores:\n        update-types: ["minor", "patch"]\n'
+    if angular:
+        out += ANGULAR_IGNORE
+    return out
+
+
 def dependabot_yml(stack):
     eco = pipe(stack)["eco"] + [("github-actions", "/")]
     if stack not in FRONTEND:
         eco.append(("docker", "/"))
-    out = "version: 2\nupdates:\n"
-    for e, d in eco:
-        out += (f'  - package-ecosystem: "{e}"\n    directory: "{d}"\n    schedule:\n'
-                '      interval: "weekly"\n    open-pull-requests-limit: 5\n')
-    return out
+    return "version: 2\nupdates:\n" + "".join(
+        dependabot_entry(e, d, angular=(stack == "angular" and e == "npm")) for e, d in eco)
 
 
 def codeowners(stack, owner):

@@ -98,7 +98,7 @@ Cuando limpies cada uno: `--strict lint`, `--strict audit` o `--strict all`. `--
 ## Qué está verificado y qué no
 
 **Verificado en este entorno:**
-- 51 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
+- 53 pruebas unitarias (`python3 -m unittest discover -s tests`): los 12 stacks (render, JSON/YAML válidos, hook),
   `--update`, `--with-app`, `--plugin`, métricas y la lógica de actualización de versiones (con datos de prueba).
 - Hook probado en **sesiones reales de Claude Code 2.1.325**: bloquea migraciones sin ticket, bloquea el bypass por Bash y pide aprobación para instalar paquetes.
 - Los workflows de los 12 stacks pasan `actionlint`; los 12 `docker-compose.yml` pasan `docker compose config`.
