@@ -1,9 +1,12 @@
 <?php
 
+use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => response()->json(['status' => 'ok']));
+
+Route::get('/items', fn () => response()->json(Item::query()->orderBy('id')->get()));
 
 Route::post('/items', function (Request $request) {
     $data = json_decode($request->getContent(), true);
@@ -24,5 +27,5 @@ Route::post('/items', function (Request $request) {
         return response()->json(['errors' => $errors], 422);
     }
 
-    return response()->json(['name' => $name, 'quantity' => $quantity], 201);
+    return response()->json(Item::create(['name' => $name, 'quantity' => $quantity]), 201);
 });

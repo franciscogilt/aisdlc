@@ -75,8 +75,9 @@ Cuando limpies cada uno: `--strict lint`, `--strict audit` o `--strict all`. `--
 
 ## Base de datos y despliegue
 
-- FastAPI, Django, Express y Spring Boot con `--with-app --db postgres` traen repositorio con memoria o Postgres (según `DATABASE_URL`),
+- Todas las apps de backend (FastAPI, Django, Express, Spring Boot, Quarkus, .NET, Go, Rails y Laravel) con `--with-app --db postgres` traen repositorio con memoria o Postgres (según `DATABASE_URL`),
   migraciones SQL con bloqueo y `GET/POST /items`; los tests corren contra ambos backends y el E2E crea y lee un ítem en compose.
+  Laravel es la excepción idiomática: Eloquent con migraciones de Laravel y SQLite cuando no hay `DATABASE_URL`.
 - `--cloud aws|azure|gcp` o `--deploy vercel|netlify` generan `.github/workflows/deploy.yml`: solo manual (`workflow_dispatch`),
   con `environment: production` (protégelo con revisores) y OIDC en las nubes. Configura secretos y variables antes de usarlo.
 

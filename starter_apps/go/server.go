@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -16,11 +17,21 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func newMux() *http.ServeMux {
+func newMux(repo Repo) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	mux.HandleFunc("GET /items", func(w http.ResponseWriter, r *http.Request) {
+		items, err := repo.List(r.Context())
+		if err != nil {
+			slog.Error("listar items", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "error interno"})
+			return
+		}
+		writeJSON(w, http.StatusOK, items)
 	})
 
 	mux.HandleFunc("POST /items", func(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +52,13 @@ func newMux() *http.ServeMux {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"errors": errs})
 			return
 		}
-		writeJSON(w, http.StatusCreated, item)
+		saved, err := repo.Add(r.Context(), item.Name, item.Quantity)
+		if err != nil {
+			slog.Error("guardar item", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "error interno"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, saved)
 	})
 
 	return mux
