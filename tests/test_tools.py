@@ -240,11 +240,11 @@ class StarterAppTests(unittest.TestCase):
             for rel in ("go.mod", "main.go", "server.go", "server_test.go"):
                 self.assertTrue((p / rel).exists(), rel)
             # politica: libreria estandar + el driver de Postgres (Go no trae uno); nada mas como dependencia directa
-        mod = (p / "go.mod").read_text()
-        direct = [ln.split()[1] for ln in mod.splitlines() if ln.startswith("require ") and "(" not in ln]
-        direct += [ln.split()[0] for ln in mod.splitlines() if ln.startswith("\t") and "// indirect" not in ln]
-        self.assertEqual(direct, ["github.com/jackc/pgx/v5"])
-        self.assertTrue((p / "go.sum").exists())
+            mod = (p / "go.mod").read_text()
+            direct = [ln.split()[1] for ln in mod.splitlines() if ln.startswith("require ") and "(" not in ln]
+            direct += [ln.split()[0] for ln in mod.splitlines() if ln.startswith("\t") and "// indirect" not in ln]
+            self.assertEqual(direct, ["github.com/jackc/pgx/v5"])
+            self.assertTrue((p / "go.sum").exists())
             self.assertIn("go %s" % sk.RT["go"], (p / "go.mod").read_text())
 
     def test_nextjs_app(self):
