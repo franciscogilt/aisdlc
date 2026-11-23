@@ -19,6 +19,16 @@ import java.util.Set;
 
 public class PgRepo implements ItemRepo {
 
+    static {
+        // Quarkus carga las dependencias con su propio cargador de clases: el descubrimiento automatico de
+        // DriverManager puede no ver el driver, asi que se registra de forma explicita.
+        try {
+            Class.forName("org.postgresql.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
     private final String jdbcUrl;
     private final Properties props = new Properties();
 
