@@ -1,0 +1,29 @@
+name: scaffold-locks
+on:
+  push:
+    branches: [scaffold-locks]
+jobs:
+  locks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Go
+        working-directory: starter_apps/go
+        run: |
+          go get github.com/jackc/pgx/v5@latest
+          go mod tidy
+          go vet ./...
+          go test ./...
+      - name: Rails
+        working-directory: starter_apps/rails
+        run: bundle lock
+      - name: Exportar
+        run: |
+          tar czf /tmp/l.tgz starter_apps/go/go.mod starter_apps/go/go.sum starter_apps/rails/Gemfile.lock
+          echo "BEGIN"; base64 -w0 /tmp/l.tgz; echo; echo "END"
