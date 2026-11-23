@@ -21,7 +21,7 @@ STACKS = [
     {"stack": "nextjs", "port": 3000, "db": False},
     {"stack": "react", "port": 8080, "db": False},
     {"stack": "angular", "port": 8080, "db": False},
-    {"stack": "laravel", "port": 8000, "db": False},
+    {"stack": "laravel", "port": 8000, "db": True},
     {"stack": "rails", "port": 3000, "db": False},
     {"stack": "quarkus", "port": 8080, "db": True},
 ]

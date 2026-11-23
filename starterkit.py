@@ -676,6 +676,13 @@ def dockerfile_for(stack, with_app=False):
                         'exec gunicorn config.wsgi:application --bind 0.0.0.0:8000"]')
     if stack == "laravel" and with_app:  # la app de arranque no usa Vite
         df = df.replace("# TODO: si usas Vite, compila los assets en una etapa Node antes de este COPY\n", "")
+        # La app guarda en BD: sin DATABASE_URL usa SQLite (database/database.sqlite); con ella, Postgres.
+        # Aplica las migraciones y arranca Apache.
+        df = df.replace("RUN chown -R www-data:www-data storage bootstrap/cache\nEXPOSE 80\n",
+                        "RUN chown -R www-data:www-data storage bootstrap/cache database\nEXPOSE 80\n"
+                        'CMD ["sh", "-c", "[ -n \\"$DATABASE_URL\\" ] || { touch database/database.sqlite && '
+                        'chown www-data:www-data database/database.sqlite; }; '
+                        'php artisan migrate --force && exec apache2-foreground"]\n')
     if stack in ("react", "angular") and with_app:  # carpeta de salida de la app de arranque
         out = "/app/dist/app/browser" if stack == "angular" else "/app/dist"
         df = df.replace("# TODO: carpeta de salida (React/Vite: dist; Angular: dist/<proyecto>/browser)\n", "")
