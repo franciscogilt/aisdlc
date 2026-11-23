@@ -5,16 +5,25 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
     directory: "/starter_apps/express"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "maven"
     directory: "/starter_apps/springboot"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "nuget"
     directories:
       - "/starter_apps/dotnet/src/App"
@@ -22,33 +31,67 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
     directory: "/starter_apps/nextjs"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
     directory: "/starter_apps/react"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
     directory: "/starter_apps/angular"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      angular:  # todo @angular/* sube a la vez: sus peerDependencies exigen la misma version
+        patterns: ["@angular/*", "@angular-devkit/*", "@angular-eslint/*", "@schematics/angular"]
+      menores:
+        update-types: ["minor", "patch"]
+    ignore:  # Angular fija el rango de TypeScript; el salto mayor llega con la siguiente version de Angular
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "composer"
     directory: "/starter_apps/laravel"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "bundler"
     directory: "/starter_apps/rails"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
   - package-ecosystem: "maven"
     directory: "/starter_apps/quarkus"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "gomod"
+    directory: "/starter_apps/go"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: ["minor", "patch"]

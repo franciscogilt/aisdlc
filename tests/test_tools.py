@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -419,6 +421,28 @@ class E2EPlanTests(unittest.TestCase):
 
     def test_docs_and_tests_only_run_nothing(self):
         self.assertEqual(self.names("pull_request", ["README.md", "tests/test_tools.py"]), [])
+
+
+class DependabotTests(unittest.TestCase):
+    def test_groups_minor_updates_and_angular_together(self):
+        for stack in sk.STACKS:
+            cfg = yaml.safe_load(sk.dependabot_yml(stack))
+            for entry in cfg["updates"]:
+                self.assertEqual(entry["groups"]["menores"]["update-types"], ["minor", "patch"], stack)
+        ng = [e for e in yaml.safe_load(sk.dependabot_yml("angular"))["updates"] if e["package-ecosystem"] == "npm"][0]
+        self.assertIn("@angular/*", ng["groups"]["angular"]["patterns"])
+        self.assertEqual(list(ng["groups"])[0], "angular")  # el primer grupo que coincide gana
+        self.assertEqual(ng["ignore"][0]["dependency-name"], "typescript")
+
+    def test_repo_dependabot_covers_every_starter_app(self):
+        cfg = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+        dirs = set()
+        for e in cfg["updates"]:
+            dirs.update(e.get("directories") or [e["directory"]])
+        for stack in sk.STARTER_APPS:
+            if stack in ("fastapi", "django"):
+                continue  # sus pins los actualiza tools/update_versions.py
+            self.assertTrue(any(d.startswith(f"/starter_apps/{stack}") for d in dirs), stack)
 
 
 if __name__ == "__main__":
