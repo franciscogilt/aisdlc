@@ -10,7 +10,15 @@ class ApiTest < ActionDispatch::IntegrationTest
   test "crea un item" do
     post "/items", params: { name: "cafe", quantity: 2 }, as: :json
     assert_response :created
-    assert_equal({ "name" => "cafe", "quantity" => 2 }, response.parsed_body)
+    assert_equal "cafe", response.parsed_body["name"]
+    assert_equal 2, response.parsed_body["quantity"]
+  end
+
+  test "crea y lista items" do
+    post "/items", params: { name: "listado", quantity: 3 }, as: :json
+    get "/items"
+    assert_response :success
+    assert_includes response.parsed_body.map { |i| i["name"] }, "listado"
   end
 
   test "rechaza cantidad invalida" do

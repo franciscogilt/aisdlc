@@ -17,12 +17,12 @@ STACKS = [
     {"stack": "express", "port": 3000, "db": True},
     {"stack": "dotnet", "port": 8080, "db": True},
     {"stack": "springboot", "port": 8080, "db": True},
-    {"stack": "go", "port": 8080, "db": False},
+    {"stack": "go", "port": 8080, "db": True},
     {"stack": "nextjs", "port": 3000, "db": False},
     {"stack": "react", "port": 8080, "db": False},
     {"stack": "angular", "port": 8080, "db": False},
     {"stack": "laravel", "port": 8000, "db": True},
-    {"stack": "rails", "port": 3000, "db": False},
+    {"stack": "rails", "port": 3000, "db": True},
     {"stack": "quarkus", "port": 8080, "db": True},
 ]
 ALWAYS_FULL_EVENTS = {"push", "workflow_dispatch", "schedule"}
